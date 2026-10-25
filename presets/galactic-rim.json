@@ -1,0 +1,70 @@
+{
+  "version": 2,
+  "layers": [
+    {
+      "type": "noise",
+      "name": "Galactic Rim Nebula",
+      "seed": 71,
+      "bandEnabled": true,
+      "bandWidthDeg": 9,
+      "bandAngleDeg": 90,
+      "bandCenterLonDeg": -90,
+      "bandCenterLatDeg": 0,
+      "bandCenterSizeDeg": 22,
+      "bandCenterGlow": 0.7,
+      "bandCenterColor": {
+        "r": 1,
+        "g": 0.58,
+        "b": 0.28,
+        "a": 1
+      },
+      "noiseType": "ridged",
+      "scale": 4,
+      "octaves": 7,
+      "gain": 0.5,
+      "lacunarity": 2,
+      "warpStrength": 0.65,
+      "warpScale": 1.4,
+      "powerAmount": 0.8,
+      "shelfAmount": 0.3,
+      "ditherAmount": 0,
+      "innerColor": {
+        "r": 0.35,
+        "g": 0.16,
+        "b": 0.5,
+        "a": 1
+      },
+      "outerColor": {
+        "r": 0.004,
+        "g": 0.002,
+        "b": 0.008,
+        "a": 1
+      },
+      "previewTextureSize": 512
+    },
+    {
+      "type": "points",
+      "name": "Galactic Band Stars",
+      "seed": 31,
+      "numPoints": 30000,
+      "bandStrength": 1,
+      "bandConcentration": 5,
+      "bandAngleDeg": 90,
+      "colorMode": "blackbody",
+      "tempMin": 2800,
+      "tempMax": 13000,
+      "magnitudePower": 2.3,
+      "pointSize": 1,
+      "pointSizeMax": 3
+    },
+    {
+      "type": "points",
+      "name": "Background Stars",
+      "seed": 21,
+      "numPoints": 3500,
+      "colorMode": "blackbody",
+      "magnitudePower": 3,
+      "pointSize": 1
+    }
+  ]
+}

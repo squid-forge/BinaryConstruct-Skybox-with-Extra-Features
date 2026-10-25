@@ -1,0 +1,314 @@
+{
+  "version": 2,
+  "layers": [
+    {
+      "type": "noise",
+      "name": "Galactic Rim Nebula",
+      "seed": 71,
+      "sourceBlendFactor": "one",
+      "destBlendFactor": "one",
+      "noiseType": "ridged",
+      "octaves": 7,
+      "gain": 0.5,
+      "lacunarity": 2,
+      "offset": 1,
+      "scale": 4,
+      "powerAmount": 0.8,
+      "shelfAmount": 0.3,
+      "ditherAmount": 0,
+      "innerColor": {
+        "r": 0.35,
+        "g": 0.16,
+        "b": 0.5,
+        "a": 1
+      },
+      "outerColor": {
+        "r": 0.004,
+        "g": 0.002,
+        "b": 0.008,
+        "a": 1
+      },
+      "previewTextureSize": 512,
+      "warpStrength": 0.65,
+      "warpScale": 1.4,
+      "bandEnabled": true,
+      "bandWidthDeg": 9,
+      "bandAngleDeg": 90,
+      "bandCenterLonDeg": -90,
+      "bandCenterLatDeg": 0,
+      "bandCenterSizeDeg": 22,
+      "bandCenterGlow": 0.7,
+      "bandCenterColor": {
+        "r": 1,
+        "g": 0.58,
+        "b": 0.28,
+        "a": 1
+      }
+    },
+    {
+      "type": "points",
+      "name": "Galactic Band Stars",
+      "seed": 31,
+      "sourceBlendFactor": "one",
+      "destBlendFactor": "one",
+      "maskEnabled": false,
+      "maskNoiseType": "fbm",
+      "maskSeed": 1,
+      "maskOctaves": 1,
+      "maskGain": 0.5,
+      "maskLacunarity": 2,
+      "maskOffset": 1,
+      "maskPower": 1,
+      "maskScale": 1,
+      "maskThreshold": 0,
+      "maskWarpStrength": 0,
+      "maskWarpScale": 1,
+      "numPoints": 30000,
+      "pointSize": 1,
+      "pointSizeMax": 3,
+      "nearColor": {
+        "r": 1,
+        "g": 1,
+        "b": 1,
+        "a": 1
+      },
+      "farColor": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 1
+      },
+      "colorMode": "blackbody",
+      "tempMin": 2800,
+      "tempMax": 13000,
+      "magnitudePower": 2.3,
+      "bandStrength": 1,
+      "bandConcentration": 5,
+      "bandAngleDeg": 90
+    },
+    {
+      "type": "points",
+      "name": "Background Stars",
+      "seed": 21,
+      "sourceBlendFactor": "one",
+      "destBlendFactor": "one",
+      "maskEnabled": false,
+      "maskNoiseType": "fbm",
+      "maskSeed": 1,
+      "maskOctaves": 1,
+      "maskGain": 0.5,
+      "maskLacunarity": 2,
+      "maskOffset": 1,
+      "maskPower": 1,
+      "maskScale": 1,
+      "maskThreshold": 0,
+      "maskWarpStrength": 0,
+      "maskWarpScale": 1,
+      "numPoints": 3500,
+      "pointSize": 1,
+      "pointSizeMax": 0,
+      "nearColor": {
+        "r": 1,
+        "g": 1,
+        "b": 1,
+        "a": 1
+      },
+      "farColor": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 1
+      },
+      "colorMode": "blackbody",
+      "tempMin": 2500,
+      "tempMax": 12000,
+      "magnitudePower": 3,
+      "bandStrength": 0,
+      "bandConcentration": 2,
+      "bandAngleDeg": 0
+    },
+    {
+      "type": "noise",
+      "name": "Galactic Rim Nebula - cloud 2",
+      "seed": 1779033774,
+      "sourceBlendFactor": "one",
+      "destBlendFactor": "one",
+      "noiseType": "ridged",
+      "octaves": 7,
+      "gain": 0.5,
+      "lacunarity": 2,
+      "offset": 1,
+      "scale": 4,
+      "powerAmount": 0.8,
+      "shelfAmount": 0.3,
+      "ditherAmount": 0,
+      "innerColor": {
+        "r": 0.35,
+        "g": 0.16,
+        "b": 0.5,
+        "a": 1
+      },
+      "outerColor": {
+        "r": 0.004,
+        "g": 0.002,
+        "b": 0.008,
+        "a": 1
+      },
+      "previewTextureSize": 512,
+      "warpStrength": 0.65,
+      "warpScale": 1.4,
+      "bandEnabled": true,
+      "bandWidthDeg": 16,
+      "bandAngleDeg": 90,
+      "bandCenterLonDeg": -90,
+      "bandCenterLatDeg": 0,
+      "bandCenterSizeDeg": 22,
+      "bandCenterGlow": 0,
+      "bandCenterColor": {
+        "r": 1,
+        "g": 0.58,
+        "b": 0.28,
+        "a": 1
+      },
+      "bandIntensity": 0.3
+    },
+    {
+      "type": "blackhole",
+      "name": "Black Hole with Nebula Jets",
+      "seed": 0,
+      "sourceBlendFactor": "one",
+      "destBlendFactor": "one",
+      "dirLonDeg": 0,
+      "dirLatDeg": 0,
+      "apparentSize": 0.05,
+      "lensStrength": 0.6,
+      "photonRing": 0.7,
+      "discAmount": 0.8,
+      "discInner": 1.7,
+      "discOuter": 3.6,
+      "discTiltDeg": 100,
+      "discSpinDeg": 0,
+      "discKelvin": 4500,
+      "discDoppler": 0.5,
+      "jetEnabled": true,
+      "jetSize": 0.65,
+      "jetLength": 9,
+      "jetGap": 4,
+      "jetCurveStart": 3,
+      "jetCurve": 0.8,
+      "jetConeDeg": 8,
+      "jetAngleDeg": 75,
+      "jetDensity": 2,
+      "jetBrightness": 1.2,
+      "jetColorRamp": [
+        {
+          "t": 0,
+          "color": {
+            "r": 0,
+            "g": 0.01,
+            "b": 0.03,
+            "a": 1
+          }
+        },
+        {
+          "t": 0.4,
+          "color": {
+            "r": 0.04,
+            "g": 0.1,
+            "b": 0.28,
+            "a": 1
+          }
+        },
+        {
+          "t": 0.7,
+          "color": {
+            "r": 0.2,
+            "g": 0.4,
+            "b": 0.75,
+            "a": 1
+          }
+        },
+        {
+          "t": 1,
+          "color": {
+            "r": 0.8,
+            "g": 0.92,
+            "b": 1,
+            "a": 1
+          }
+        }
+      ],
+      "jetRampAlongLength": true,
+      "jetLayers": [
+        {
+          "jetEnabled": true,
+          "jetSize": 0.55,
+          "jetLength": 13,
+          "jetGap": 5,
+          "jetCurveStart": 2,
+          "jetCurve": -0.7,
+          "jetConeDeg": 8,
+          "jetAngleDeg": 35,
+          "jetDensity": 1.6,
+          "jetBrightness": 0.8,
+          "jetColorRamp": [
+            {
+              "t": 0,
+              "color": {
+                "r": 0.01,
+                "g": 0.02,
+                "b": 0.05,
+                "a": 1
+              }
+            },
+            {
+              "t": 0.35,
+              "color": {
+                "r": 0.05,
+                "g": 0.22,
+                "b": 0.29,
+                "a": 1
+              }
+            },
+            {
+              "t": 0.6,
+              "color": {
+                "r": 0.24,
+                "g": 0.5,
+                "b": 0.48,
+                "a": 1
+              }
+            },
+            {
+              "t": 0.8,
+              "color": {
+                "r": 0.85,
+                "g": 0.62,
+                "b": 0.28,
+                "a": 1
+              }
+            },
+            {
+              "t": 1,
+              "color": {
+                "r": 1,
+                "g": 0.95,
+                "b": 0.82,
+                "a": 1
+              }
+            }
+          ],
+          "jetRampAlongLength": true,
+          "name": "Warm outer plume",
+          "seed": 17319,
+          "visible": true,
+          "tipGlow": 0.5,
+          "tipSize": 0.15
+        }
+      ],
+      "coreVisible": true,
+      "tipGlow": 0.6,
+      "tipSize": 0.15
+    }
+  ]
+}

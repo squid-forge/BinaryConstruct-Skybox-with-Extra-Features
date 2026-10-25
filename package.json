@@ -1,0 +1,37 @@
+{
+  "name": "skybox-extra-features",
+  "description": "BinaryConstruct Skybox + Extra Features: independent MIT editor with native nebula jets and streaming exports",
+  "license": "MIT",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/build-help.mjs && vite",
+    "build": "npm run notices && node scripts/build-help.mjs && tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "notices": "node scripts/build-notices.mjs",
+    "publication:check": "node scripts/publication-check.mjs"
+  },
+  "dependencies": {
+    "@types/three": "^0.185.1",
+    "fflate": "^0.8.3",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "jsdom": "^29.1.1",
+    "oxlint": "^1.71.0",
+    "playwright": "^1.61.1",
+    "typescript": "~6.0.2",
+    "vite": "^8.1.1",
+    "vitest": "^4.1.12"
+  }
+}
