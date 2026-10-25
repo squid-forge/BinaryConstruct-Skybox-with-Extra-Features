@@ -1,0 +1,13 @@
+HYG v2 catalog subset - Creative Commons Attribution-ShareAlike 2.5
+
+Author/compiler: David Nash / Astronomy Nexus (HYG database).
+File: public/media/stars.csv; 43 HYG v2 stellar rows, with constellation headings.
+Provenance: distributed with Spacescape by Alex Peterson and subsequently BinaryConstruct Skybox. The retained CSV matches Spacescape's stars.csv after line-ending normalization. All 43 data rows and the header match the archived HYG v2 hygxyz.csv exactly. No data edits were made during this publication audit. The subset/heading arrangement was inherited from Spacescape.
+
+This DATA is licensed under CC BY-SA 2.5, separately from the application's MIT code.
+License summary: https://creativecommons.org/licenses/by-sa/2.5/
+Full legal terms: https://creativecommons.org/licenses/by-sa/2.5/legalcode
+HYG v2 license declaration: https://github.com/astronexus/HYG-Database/blob/main/hyg/v2/LICENSE.html
+Catalog source: https://github.com/astronexus/HYG-Database/blob/main/hyg/v2/hygxyz.csv.gz
+
+You may share and adapt the data, including commercially, subject to attribution, an appropriate license reference, and applicable ShareAlike terms for adaptations. Preserve these notices when redistributing the catalog. MIT permission for application code does not override the data license. Exports incorporating third-party data/artwork may carry separate obligations; this package does not promise all possible outputs are unrestricted.

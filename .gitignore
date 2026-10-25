@@ -1,0 +1,69 @@
+# Dependencies, builds and caches
+node_modules/
+/dist/
+/dist-ssr/
+/coverage/
+/.cache/
+/.vite/
+/.vitest/
+*.tsbuildinfo
+
+# Browser test output
+/playwright-report/
+/test-results/
+/blob-report/
+
+# Local exports, scratch files and backups
+/exports/
+/tmp/
+/temp/
+/backups/
+/.local-review/
+/scratch-*
+*.log
+*.tmp
+*.temp
+*.bak
+*~
+*.swp
+*.swo
+
+# Local editor and assistant settings
+.vscode/
+.idea/
+.claude/
+.codex/
+.cursor/
+.windsurf/
+CLAUDE.md
+AGENTS.md
+AI_POLICY.md
+
+# Generated development records; keep Docs/Design and Docs/Examples
+/Docs/Plans/
+/Docs/Research/
+/Docs/Blog/
+/Docs/Subagents/
+
+# Credentials and machine-specific configuration
+.env
+.env.*
+!.env.example
+.envrc
+.direnv/
+.npmrc
+.aws/
+.ssh/
+id_rsa
+id_ed25519
+*.pem
+*.key
+*.p12
+*.pfx
+*.local
+
+# OS metadata
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,249 @@
+{
+  "version": 2,
+  "layers": [
+    {
+      "type": "noise",
+      "name": "Oxygen cloud",
+      "seed": 37013,
+      "sourceBlendFactor": "one",
+      "destBlendFactor": "one_minus_src_alpha",
+      "noiseType": "fbm",
+      "octaves": 6,
+      "gain": 0.58,
+      "lacunarity": 2,
+      "offset": 1,
+      "scale": 4.5,
+      "powerAmount": 0.85,
+      "shelfAmount": 0.18,
+      "ditherAmount": 0.03,
+      "innerColor": {
+        "r": 1,
+        "g": 1,
+        "b": 1,
+        "a": 1
+      },
+      "outerColor": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 1
+      },
+      "previewTextureSize": 256,
+      "warpStrength": 0.6,
+      "warpScale": 1.2,
+      "hdrMultiplier": 2,
+      "cloudEnabled": true,
+      "dirLonDeg": 0,
+      "dirLatDeg": 0,
+      "apparentSize": 0.5,
+      "aspect": 1.3,
+      "rotationDeg": 0,
+      "cloudMask": "billow",
+      "cloudStyle": 0,
+      "cloudDensity": 4,
+      "cloudDepth": 0.9,
+      "cloudMaskScale": 1,
+      "cloudErosion": 0.5,
+      "cloudFeather": 0.16,
+      "cloudAbsorption": 1.8,
+      "cloudShadow": 2,
+      "cloudShafts": 0.8,
+      "cloudAmbient": 0.8,
+      "cloudSaturation": 1.2,
+      "cloudLightX": 0,
+      "cloudLightY": 0,
+      "cloudLightZ": 0.6,
+      "cloudLightPower": 4,
+      "cloudLightColor": {
+        "r": 0.5,
+        "g": 0.8,
+        "b": 1,
+        "a": 1
+      },
+      "cloudLight2X": 0.35,
+      "cloudLight2Y": -0.2,
+      "cloudLight2Z": 0.3,
+      "cloudLight2Power": 1,
+      "cloudLight2Color": {
+        "r": 1,
+        "g": 0.35,
+        "b": 0.12,
+        "a": 1
+      },
+      "colorRamp": [
+        {
+          "t": 0,
+          "color": {
+            "r": 0.012,
+            "g": 0.035,
+            "b": 0.055,
+            "a": 1
+          }
+        },
+        {
+          "t": 0.3,
+          "color": {
+            "r": 0.025,
+            "g": 0.2,
+            "b": 0.28,
+            "a": 1
+          }
+        },
+        {
+          "t": 0.55,
+          "color": {
+            "r": 0.2,
+            "g": 0.65,
+            "b": 0.8,
+            "a": 1
+          }
+        },
+        {
+          "t": 0.72,
+          "color": {
+            "r": 0.85,
+            "g": 0.5,
+            "b": 0.32,
+            "a": 1
+          }
+        },
+        {
+          "t": 0.9,
+          "color": {
+            "r": 1,
+            "g": 0.75,
+            "b": 0.58,
+            "a": 1
+          }
+        },
+        {
+          "t": 1,
+          "color": {
+            "r": 0.85,
+            "g": 0.96,
+            "b": 1,
+            "a": 1
+          }
+        }
+      ],
+      "cloudRadial": true,
+      "cloudRadius": 1,
+      "cloudRadialFalloff": 0.4,
+      "cloudLightVisible": true,
+      "cloudLightRadius": 0.012,
+      "cloudLightGlow": 0.7
+    },
+    {
+      "type": "noise",
+      "name": "Warm dust filaments",
+      "seed": 1779070716,
+      "sourceBlendFactor": "one",
+      "destBlendFactor": "one",
+      "noiseType": "fbm",
+      "octaves": 6,
+      "gain": 0.58,
+      "lacunarity": 2,
+      "offset": 1,
+      "scale": 4.5,
+      "powerAmount": 0.85,
+      "shelfAmount": 0.18,
+      "ditherAmount": 0.03,
+      "innerColor": {
+        "r": 1,
+        "g": 1,
+        "b": 1,
+        "a": 1
+      },
+      "outerColor": {
+        "r": 0,
+        "g": 0,
+        "b": 0,
+        "a": 1
+      },
+      "previewTextureSize": 256,
+      "warpStrength": 0.6,
+      "warpScale": 1.2,
+      "hdrMultiplier": 0.8,
+      "cloudEnabled": true,
+      "dirLonDeg": 7,
+      "dirLatDeg": 4,
+      "apparentSize": 0.47,
+      "aspect": 1.3,
+      "rotationDeg": -17,
+      "cloudMask": "wisps",
+      "cloudStyle": 1,
+      "cloudDensity": 2.5,
+      "cloudDepth": 0.9,
+      "cloudMaskScale": 1,
+      "cloudErosion": 0.5,
+      "cloudFeather": 0.16,
+      "cloudAbsorption": 1.8,
+      "cloudShadow": 2,
+      "cloudShafts": 0.8,
+      "cloudAmbient": 0.8,
+      "cloudSaturation": 1.2,
+      "cloudLightX": -0.15,
+      "cloudLightY": 0.05,
+      "cloudLightZ": 0.6,
+      "cloudLightPower": 0,
+      "cloudLightColor": {
+        "r": 0.5,
+        "g": 0.8,
+        "b": 1,
+        "a": 1
+      },
+      "cloudLight2X": 0.35,
+      "cloudLight2Y": -0.2,
+      "cloudLight2Z": 0.3,
+      "cloudLight2Power": 2,
+      "cloudLight2Color": {
+        "r": 1,
+        "g": 0.35,
+        "b": 0.12,
+        "a": 1
+      },
+      "colorRamp": [
+        {
+          "t": 0,
+          "color": {
+            "r": 0.01,
+            "g": 0.005,
+            "b": 0.002,
+            "a": 1
+          }
+        },
+        {
+          "t": 0.4,
+          "color": {
+            "r": 0.2,
+            "g": 0.06,
+            "b": 0.025,
+            "a": 1
+          }
+        },
+        {
+          "t": 0.7,
+          "color": {
+            "r": 0.8,
+            "g": 0.3,
+            "b": 0.12,
+            "a": 1
+          }
+        },
+        {
+          "t": 1,
+          "color": {
+            "r": 1,
+            "g": 0.85,
+            "b": 0.7,
+            "a": 1
+          }
+        }
+      ],
+      "cloudRadial": true,
+      "cloudRadius": 1,
+      "cloudInnerRadius": 0.2,
+      "cloudRadialFalloff": 0.3
+    }
+  ]
+}
