@@ -74,7 +74,11 @@ The code is MIT-licensed. The bundled HYG v2 catalog is separately CC BY-SA 2.5;
 
 ## View modes and FOV
 
-Use the projection menu above the tabs to switch between 3D sky view and a letterboxed 2D panorama overview. The 2D view displays the full 360 by 180 sky; clouds remain draggable and sprite drops/HDR area picks use panorama coordinates. New objects in the overview start at longitude/latitude zero. The overview is a bounded 512-face visual aid, not an export-resolution proof.
+Use **Preview quality** above the view controls if editing feels slow. Low renders at 50% scale, Medium at 75%, and High uses the full preview resolution. Lower settings also shrink nebula, black-hole background and panorama preview buffers. Medium is the default, and your choice is remembered in this browser. This changes only the editor view, not saved scene settings, image exports or HDR preview crops.
+
+Cloud and nebula edits reuse their existing preview buffers and smoke masks. Slider updates are grouped into short batches, and the view stops redrawing while idle. Large star fields and complex PCG bakes can still take time to generate.
+
+Use the projection menu above the tabs to switch between 3D sky view and a letterboxed 2D panorama overview. The 2D view displays the full 360 by 180 sky; clouds remain draggable and sprite drops/HDR area picks use panorama coordinates. New objects in the overview start at longitude/latitude zero. Its preview cube faces use 128, 256 or 512 pixels according to the quality setting; use an HDR crop to inspect export detail.
 
 In 3D, Field of view accepts 15 to 120 degrees and stays synchronized with wheel/pinch zoom. Switching projection preserves the 3D FOV. The always-visible HDR preview button opens native-resolution smoothness comparison without first selecting an export format. Select the export resolution in Export to choose its native crop grid.
 

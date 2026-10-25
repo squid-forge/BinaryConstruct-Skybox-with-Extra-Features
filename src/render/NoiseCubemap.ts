@@ -1,5 +1,5 @@
 import { CLOUD_FRAG } from './cloudGlsl';
-import { configureSmoke, smokeUniforms } from './smoke';
+import { configureSmoke, smokeUniforms, updateSmokeUniforms } from './smoke';
 import type { SmokeParams } from '../core/layers';
 /**
  * Renders seeded FBM/ridged noise into a cubemap render target, mirroring
@@ -158,9 +158,11 @@ export class NoiseCubemap {
   private rttScene = new THREE.Scene();
   private material: THREE.ShaderMaterial;
   private smokeResources?: ReturnType<typeof configureSmoke>;
+  private smokeKey = '';
   private disposed = false;
   private readonly sphericalSmoke: boolean;
   get ready(): Promise<void> { return this.smokeResources?.ready ?? Promise.resolve(); }
+  get smokePending(): boolean { return this.smokeResources?.pending ?? false; }
   renderConfigured(renderer: THREE.WebGLRenderer) { if (!this.disposed) this.cubeCamera.update(renderer, this.rttScene); }
   private boxGeometry!: THREE.BoxGeometry;
   private permTex: THREE.DataTexture | null = null;
@@ -260,8 +262,12 @@ export class NoiseCubemap {
   get directMaterial(): THREE.ShaderMaterial { return this.material; }
 
   configure(params: NoiseParams): void {
-    this.smokeResources?.dispose();
-    this.smokeResources = configureSmoke(this.material, params, params.smokeEnabled === true, this.sphericalSmoke);
+    const smokeKey = JSON.stringify([params.smokeEnabled === true, params.cloudMask ?? 'procedural']);
+    if (!this.smokeResources || smokeKey !== this.smokeKey) {
+      this.smokeResources?.dispose();
+      this.smokeResources = configureSmoke(this.material, params, params.smokeEnabled === true, this.sphericalSmoke);
+      this.smokeKey = smokeKey;
+    } else updateSmokeUniforms(this.material, params, params.smokeEnabled === true, this.sphericalSmoke);
     if (this.lutSeed !== params.seed) {
       this.permTex?.dispose();
       this.gradTex?.dispose();
