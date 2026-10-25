@@ -20,6 +20,8 @@ This is a 2.5D density-slab lighting approximation. Volumetric nebula emission s
 
 NoiseCubemap owns shared seeded Perlin/ramp resources and optional smoke texture lifetime. Local clouds use a direct procedural plane shader, so preview and tiled exports evaluate the same density rather than enlarging a baked image. All-sky/volume previews rebake their cubemaps after asynchronous smoke assets arrive; native jet and tile-source ready promises include smoke loading. Disposed resources cannot install late texture loads. Tiled export waits for layer readiness.
 
+Cloud, all-sky noise and volume edits update existing materials and buffers when their type and buffer size stay compatible. Unchanged smoke masks keep their texture; changing masks replaces it. Native object replacements acquire shader programs before disposing the old materials. Lens captures are grouped before the next frame, and unchanged views do not redraw continuously. Placement-mask readbacks have a two-entry LRU (12 MiB maximum) without changing mask resolution or seeded placement. Export preparation remains synchronous and independent of these preview scheduling changes.
+
 Smoke masks provide finite-resolution silhouettes; procedural density supplies native-pixel interior detail. CPU PCG bakes use cached alpha masks plus a seeded field and six-sample density shadows, with baked light cores. Selected PCG object components apply the field to their own scratch canvas before composition. CPU and GPU paths are artistic counterparts, not byte-identical implementations. PCG sprites retain their bake resolution and cannot dynamically extinguish unrelated sky layers under additive blending.
 
 ## Palettes and persistence

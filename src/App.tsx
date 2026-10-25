@@ -10,6 +10,7 @@ import { NATIVE_PLUME_DEFAULTS, defaultLayer, type Layer, type LayerType } from 
 import { downloadBlob, floatToPngBlob } from './export/exporter';
 import { buildProjectBundle, mimeForFileName, openProjectBundle } from './export/projectBundle';
 import { PreviewScene } from './render/PreviewScene';
+import { PREVIEW_QUALITY, type PreviewQuality } from './render/previewQuality';
 import { chooseExportDirectory } from './export/diskExport';
 import { HdrPreview } from './ui/HdrPreview';
 import { Inspector } from './ui/Inspector';
@@ -63,6 +64,13 @@ export default function App() {
   const [selected, setSelected] = useState(0);
   const [flatView, setFlatView] = useState(false);
   const [viewFov, setViewFov] = useState(80);
+  const [previewQuality, setPreviewQuality] = useState<PreviewQuality>(() => {
+    try {
+      const saved = localStorage.getItem('skybox.previewQuality');
+      if (saved && Object.hasOwn(PREVIEW_QUALITY, saved)) return saved as PreviewQuality;
+    } catch { /* Storage may be unavailable; use the balanced default. */ }
+    return 'medium';
+  });
   const [grid, setGrid] = useState(false);
   const [spriteVersion, setSpriteVersion] = useState(0);
   const [exportOpen, setExportOpen] = useState(false);
@@ -137,6 +145,7 @@ export default function App() {
       setSpriteVersion(v => v + 1);
     }
     if (flushTimer.current) clearTimeout(flushTimer.current);
+    flushTimer.current = null;
     dirtyRef.current.clear(); layersRef.current = next; setLayersState(next);
     setSelected(s => Math.min(s, Math.max(0, next.length - 1)));
     sceneRef.current?.setLayers(next);
@@ -193,14 +202,23 @@ export default function App() {
 
     return () => {
       exportAbort.current?.abort();
+      if (flushTimer.current) clearTimeout(flushTimer.current);
+      flushTimer.current = null;
       observer.disconnect();
       scene.dispose();
       sceneRef.current = null;
     };
   }, []);
 
+  useEffect(() => {
+    sceneRef.current?.setPreviewQuality(previewQuality);
+    try { localStorage.setItem('skybox.previewQuality', previewQuality); } catch { /* Display preference only. */ }
+  }, [previewQuality]);
+
   /** Replace the whole stack (preset load, file open, structural edits). */
   const loadLayers = (next: Layer[], keepSelection = false) => {
+    if (flushTimer.current) clearTimeout(flushTimer.current);
+    flushTimer.current = null;
     dirtyRef.current.clear();
     setLayers(next);
     if (!keepSelection) setSelected(0);
@@ -264,19 +282,21 @@ export default function App() {
     addSpriteLayerAt(id, id.replace(/^user:/, '').replace(/\.(png|jpe?g|webp)$/i, ''), at, occludes);
   };
 
-  /** Param edit: update state now, rebuild dirty layers debounced. */
+  /** Update controls immediately; apply the latest preview values in batches. */
   const updateLayer = (index: number, layer: Layer) => {
     const previous = layersRef.current[index];
     const fields = Object.keys(layer).filter(k => JSON.stringify((layer as unknown as Record<string, unknown>)[k]) !== JSON.stringify((previous as unknown as Record<string, unknown>)?.[k])).sort().join(',');
     setLayers((prev) => prev.map((l, i) => (i === index ? layer : l)), `layer-${index}-${fields}`);
     dirtyRef.current.set(index, layer);
-    if (flushTimer.current) clearTimeout(flushTimer.current);
+    if (flushTimer.current) return;
     flushTimer.current = setTimeout(() => {
-      for (const [i, l] of dirtyRef.current) {
+      flushTimer.current = null;
+      const pending = [...dirtyRef.current];
+      dirtyRef.current.clear();
+      for (const [i, l] of pending) {
         sceneRef.current?.updateLayer(i, l);
       }
-      dirtyRef.current.clear();
-    }, 200);
+    }, 80);
   };
 
   const toggleLayer = (index: number) => {
@@ -559,6 +579,15 @@ export default function App() {
           </p>
         )}
         <div className="view-controls">
+          <div className="preview-quality-control">
+            <label htmlFor="preview-quality">Preview quality</label>
+            <select id="preview-quality" disabled={exporting || hdrPreviewOpen} value={previewQuality} onChange={e => setPreviewQuality(e.target.value as PreviewQuality)}>
+              <option value="low">Low (50%)</option>
+              <option value="medium">Medium (75%)</option>
+              <option value="high">High (100%)</option>
+            </select>
+          </div>
+          <p className="hint preview-quality-hint">Preview only. Exports and HDR crops keep their selected quality.</p>
           <select aria-label="Viewport projection" value={flatView ? '2d' : '3d'} onChange={e => { const flat = e.target.value === '2d'; setFlatView(flat); sceneRef.current?.setViewMode(flat); }}>
             <option value="3d">3D sky view</option><option value="2d">2D panorama view</option>
           </select>

@@ -21,6 +21,7 @@ import { applyBlend } from './blend';
 import { loadFlareTexture } from './flareTextures';
 import { nativeBodyMaterial } from './nativeBodyMaterial';
 import { applyNativeFlare } from './nativeFlare';
+import { PREVIEW_QUALITY, previewPixelRatio, type PreviewQuality } from './previewQuality';
 import { buildBlackHoleObject } from './blackHoleLayer';
 import { NoiseCubemap, noiseParamsFromLayer, noiseParamsFromMask, noiseParamsFromVolumetric } from './NoiseCubemap';
 import { EQUIRECT_FRAG, EQUIRECT_VERT, POINTS_FRAG, POINTS_VERT, SKY_FRAG, SKY_VERT } from './noiseGlsl';
@@ -44,6 +45,8 @@ function loadBundledCatalog(): Promise<CatalogStar[]> {
 
 interface LayerObject {
   group: THREE.Group;
+  /** Reuse an existing preview's resources when its layer shape permits it. */
+  update?: (layer: Layer) => boolean;
   /** resolves when async content (catalog fetch, textures) is attached */
   ready?: Promise<void>;
   /**
@@ -116,9 +119,11 @@ export class PreviewScene {
   private disposed = false;
   private readonly renderFrame = () => {
     this.controls.update();
+    if (this.capturesDirty) { this.capturesDirty = false; this.captureAll(); }
     if (this.flatView) this.renderFlatView();
-    else this.renderer.render(this.scene, this.camera);
+    else if (this.flatDirty) { this.renderer.render(this.scene, this.camera); this.flatDirty = false; }
   };
+  private capturesDirty = false;
   private flatView = false;
   private flatDirty = true;
   onFovChanged?: (fov: number) => void;
@@ -127,6 +132,13 @@ export class PreviewScene {
   private camera: THREE.PerspectiveCamera;
   private controls: OrbitControls;
   private layerObjects: LayerObject[] = [];
+  private previewLayers: Layer[] = [];
+  private previewQuality: PreviewQuality = 'high';
+  private pendingPreviewQuality?: PreviewQuality;
+  private viewportWidth = 1;
+  private viewportHeight = 1;
+  private previewStarScale = 1;
+  private maskCache = new Map<string, CubeMask>();
   private grid: THREE.LineSegments | null = null;
   /** Discrete FOV zoom levels (zoomed in -> out); wheel steps through them. */
   private static readonly ZOOM_LEVELS = [15, 30, 45, 60, 80, 100, 120];
@@ -149,6 +161,7 @@ export class PreviewScene {
     this.camera.position.set(0, 0, 0.01);
 
     this.controls = new OrbitControls(this.camera, canvas);
+    this.controls.addEventListener('change', () => { this.flatDirty = true; });
     this.controls.enableZoom = false; // wheel handled below (discrete FOV steps)
     this.controls.enablePan = false;
     this.controls.rotateSpeed = -0.35; // inverted: we are inside the sky sphere
@@ -262,6 +275,7 @@ export class PreviewScene {
 
   /** Rebuild displayed objects from the layer stack (file order = draw order). */
   setLayers(layers: Layer[]): void {
+    this.previewLayers = [...layers];
     for (const obj of this.layerObjects) {
       this.scene.remove(obj.group);
       obj.dispose();
@@ -269,13 +283,14 @@ export class PreviewScene {
     this.layerObjects = [];
 
     layers.forEach((layer, index) => {
-      const obj = this.buildLayer(layer, index);
+      const obj = this.buildPreviewLayer(layer, index);
       obj.appVisible = layer.visible !== false;
       obj.group.visible = obj.appVisible && !this.skyHidden;
       this.layerObjects.push(obj);
       this.scene.add(obj.group);
     });
     this.applyVisibility();
+    this.applyStarZoom();
     this.runPrepares();
   }
 
@@ -283,16 +298,60 @@ export class PreviewScene {
   updateLayer(index: number, layer: Layer): void {
     const old = this.layerObjects[index];
     if (!old) return;
+    const previous = this.previewLayers[index];
+    this.previewLayers[index] = layer;
     const visible = layer.visible !== false;
+    const keys = new Set([...Object.keys(previous ?? {}), ...Object.keys(layer)]);
+    const changed = [...keys].filter(key => JSON.stringify(previous?.[key as keyof Layer]) !== JSON.stringify(layer[key as keyof Layer]));
+    // An explicit refresh with identical fields can mean a replaced image.
+    const metadataOnly = previous && changed.length > 0 && changed.every(key => key === 'name' || key === 'visible');
+    if (metadataOnly || old.update?.(this.previewLayerParams(layer))) {
+      const visibilityChanged = old.appVisible !== visible;
+      old.appVisible = visible; old.group.visible = visible && !this.skyHidden;
+      this.applyStarZoom();
+      if (!metadataOnly || visibilityChanged) this.runPrepares();
+      return;
+    }
+    // Keep old programs alive until replacement materials have acquired them.
+    // Disposing first forces the driver to compile the same shaders per edit.
+    const obj = this.buildPreviewLayer(layer, index);
     this.scene.remove(old.group);
-    old.dispose();
-
-    const obj = this.buildLayer(layer, index);
     obj.appVisible = visible;
     obj.group.visible = visible && !this.skyHidden;
-    this.layerObjects[index] = obj;
     this.scene.add(obj.group);
+    try { this.renderer.compile(this.scene, this.camera); }
+    catch (error) { this.scene.remove(obj.group); obj.dispose(); this.scene.add(old.group); throw error; }
+    old.dispose();
+    this.layerObjects[index] = obj;
+    this.applyStarZoom();
     this.runPrepares();
+  }
+
+  /** Display-only quality: authored layers and export builders stay intact. */
+  setPreviewQuality(quality: PreviewQuality): void {
+    if (!Object.hasOwn(PREVIEW_QUALITY, quality) || this.disposed) return;
+    // HDR cancellation can release its source just after the dialog closes.
+    // Wait rather than resizing the shared renderer during a tile operation.
+    if (this.activeTileSources > 0) { this.pendingPreviewQuality = quality; return; }
+    if (quality === this.previewQuality) return;
+    this.endDrag(false);
+    this.previewQuality = quality;
+    this.bhCaptureSize = PREVIEW_QUALITY[quality].lens;
+    this.releaseFlatView();
+    // Resize without recapturing targets that are about to be replaced.
+    this.resize(this.viewportWidth, this.viewportHeight, false);
+    this.setLayers(this.previewLayers);
+  }
+
+  private buildPreviewLayer(layer: Layer, index: number): LayerObject {
+    return this.buildLayer(this.previewLayerParams(layer), index);
+  }
+
+  private previewLayerParams(layer: Layer): Layer {
+    if (layer.type === 'noise' || layer.type === 'volumetric') {
+      return { ...layer, previewTextureSize: Math.min(layer.previewTextureSize, PREVIEW_QUALITY[this.previewQuality].cube) };
+    }
+    return layer;
   }
 
   private prepareGen = 0;
@@ -524,14 +583,15 @@ export class PreviewScene {
   /** Re-capture backgrounds for distortion layers after any scene change. */
   private runPrepares(): void {
     this.flatDirty = true;
-    if (this.layerObjects.some((o) => o.prepare)) this.captureAll();
+    this.capturesDirty = this.layerObjects.some(o => o.prepare);
     // async content (catalog billboards, flare textures) lands later —
     // re-capture once it does, unless the scene was rebuilt in the meantime
     const gen = ++this.prepareGen;
     const pending = this.layerObjects.map((o) => o.ready).filter(Boolean);
     if (pending.length) {
+      this.capturesDirty = false;
       void Promise.all(pending).then(() => {
-        if (gen === this.prepareGen && !this.disposed) { this.flatDirty = true; if (this.layerObjects.some(o => o.prepare)) this.captureAll(); }
+        if (gen === this.prepareGen && !this.disposed) { this.flatDirty = true; this.capturesDirty = this.layerObjects.some(o => o.prepare); }
       });
     }
   }
@@ -550,7 +610,7 @@ export class PreviewScene {
     // point stars render in device pixels — rescale them so their apparent
     // size in the capture matches the live view it's composited into
     const pointScale = this.flatView
-      ? this.bhCaptureSize / 1024 / this.starZoomFactor()
+      ? this.bhCaptureSize / 1024 / this.starZoomFactor() / this.previewStarScale
       : (this.bhCaptureSize * (this.camera.fov / 90)) / Math.max(1, this.renderer.domElement.height);
     PreviewScene.prepareObjects(this.layerObjects, this.renderer, this.scene, pointScale);
     if (this.skyHidden) this.applyVisibility();
@@ -674,7 +734,7 @@ export class PreviewScene {
           if (loaded) {
             (mesh.material as THREE.MeshBasicMaterial).map = loaded;
             (mesh.material as THREE.MeshBasicMaterial).needsUpdate = true;
-            mesh.visible = true;
+            mesh.visible = true; this.flatDirty = true; this.capturesDirty = this.layerObjects.some(o => o.prepare);
           }
         })
       : undefined;
@@ -840,38 +900,43 @@ export class PreviewScene {
 
   /** Volumetric nebulas bake through the same cubemap path, raymarch shader. */
   private buildVolumetricLayer(layer: Extract<Layer, { type: 'volumetric' }>, index: number): LayerObject {
-    const cubemap = new NoiseCubemap(Math.max(4, layer.previewTextureSize), 'half', 'volumetric');
-    cubemap.render(this.renderer, noiseParamsFromVolumetric(layer));
+    return this.buildSkyNoiseLayer(layer, index);
+  }
 
+  private buildSkyNoiseLayer(layer: Extract<Layer, { type: 'noise' | 'volumetric' }>, index: number): LayerObject {
+    const type = layer.type, size = Math.max(4, layer.previewTextureSize);
+    const cubemap = new NoiseCubemap(size, 'half', type === 'volumetric' ? 'volumetric' : 'noise');
+    const render = (next: typeof layer) => cubemap.render(this.renderer, next.type === 'noise' ? noiseParamsFromLayer(next) : noiseParamsFromVolumetric(next));
+    render(layer);
     const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      vertexShader: SKY_VERT,
-      fragmentShader: SKY_FRAG,
-      side: THREE.BackSide,
-      uniforms: { cubeMap: { value: cubemap.texture } },
+      glslVersion: THREE.GLSL3, vertexShader: SKY_VERT, fragmentShader: SKY_FRAG,
+      side: THREE.BackSide, uniforms: { cubeMap: { value: cubemap.texture } },
     });
     applyBlend(material, layer.sourceBlendFactor, layer.destBlendFactor);
-
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(SKY_RADIUS * 2, SKY_RADIUS * 2, SKY_RADIUS * 2),
-      material,
-    );
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(SKY_RADIUS * 2, SKY_RADIUS * 2, SKY_RADIUS * 2), material);
     mesh.renderOrder = index;
-
-    const group = new THREE.Group();
-    group.add(mesh);
-    return {
-      group,
-      ready: cubemap.ready.then(() => { if (layer.smokeEnabled) cubemap.renderConfigured(this.renderer); }),
-      dispose: () => {
-        mesh.geometry.dispose();
-        material.dispose();
-        cubemap.dispose();
-      },
+    const group = new THREE.Group(); group.add(mesh);
+    let version = 0;
+    const ready = () => {
+      const current = ++version;
+      return cubemap.smokePending ? cubemap.ready.then(() => {
+        if (version === current) cubemap.renderConfigured(this.renderer);
+      }) : undefined;
     };
+    const object: LayerObject = {
+      group, ready: ready(),
+      update: next => {
+        if (next.type !== type || (next.type !== 'noise' && next.type !== 'volumetric') || (next.type === 'noise' && next.cloudEnabled) || Math.max(4, next.previewTextureSize) !== size) return false;
+        render(next); applyBlend(material, next.sourceBlendFactor, next.destBlendFactor);
+        object.ready = ready(); return true;
+      },
+      dispose: () => { version++; mesh.geometry.dispose(); material.dispose(); cubemap.dispose(); },
+    };
+    return object;
   }
 
   setLayerVisible(index: number, visible: boolean): void {
+    if (this.previewLayers[index]) this.previewLayers[index] = { ...this.previewLayers[index], visible };
     const obj = this.layerObjects[index];
     if (obj) {
       obj.appVisible = visible;
@@ -929,7 +994,7 @@ export class PreviewScene {
   }
 
   private applyStarZoom(): void {
-    const factor = this.starZoomFactor();
+    const factor = this.starZoomFactor() * this.previewStarScale;
     this.scene.traverse((o) => {
       if (o instanceof THREE.Points) {
         (o.material as THREE.ShaderMaterial).uniforms.sizeScale.value = factor;
@@ -939,14 +1004,22 @@ export class PreviewScene {
 
   /** Bake a layer's noise mask cubemap and read it back for CPU sampling. */
   private bakeMask(layer: Parameters<typeof noiseParamsFromMask>[0]): CubeMask {
+    const params = noiseParamsFromMask(layer), key = JSON.stringify(params);
+    const cached = this.maskCache.get(key);
+    if (cached) { this.maskCache.delete(key); this.maskCache.set(key, cached); return cached; }
     const cubemap = new NoiseCubemap(MASK_SIZE, 'byte');
-    cubemap.render(this.renderer, noiseParamsFromMask(layer));
-    const faces = cubemap.readFaces(this.renderer);
-    cubemap.dispose();
-    return { size: MASK_SIZE, faces };
+    try {
+      cubemap.render(this.renderer, params);
+      const mask = { size: MASK_SIZE, faces: cubemap.readFaces(this.renderer) };
+      this.maskCache.set(key, mask);
+      // Two 512-face RGBA masks retain at most 12 MiB, with original placement.
+      if (this.maskCache.size > 2) this.maskCache.delete(this.maskCache.keys().next().value!);
+      return mask;
+    } finally { cubemap.dispose(); }
   }
 
   private buildCloudLayer(layer: Extract<Layer, { type: 'noise' }>, index: number): LayerObject {
+    let currentLayer = layer;
     const noise = new NoiseCubemap(1, 'half', 'cloud');
     noise.configure({ ...noiseParamsFromLayer(layer), smokeEnabled: true });
     const material = noise.directMaterial;
@@ -959,44 +1032,34 @@ export class PreviewScene {
     mesh.renderOrder = index; mesh.frustumCulled = false;
     const place = (lon: number, lat: number) => {
       mesh.position.copy(lonLatToDir(lon, lat)).multiplyScalar(SKY_RADIUS * 0.96);
-      mesh.lookAt(0, 0, 0); mesh.rotateZ((layer.rotationDeg ?? 0) * Math.PI / 180);
+      mesh.lookAt(0, 0, 0); mesh.rotateZ((currentLayer.rotationDeg ?? 0) * Math.PI / 180);
     };
     place(layer.dirLonDeg ?? 0, layer.dirLatDeg ?? 0);
     const group = new THREE.Group(); group.add(mesh);
-    return { group, ready: noise.ready, placeable: layer.locked ? undefined : { mesh, place }, dispose: () => { geometry.dispose(); noise.dispose(); } };
+    const object: LayerObject = {
+      group, ready: noise.smokePending ? noise.ready : undefined,
+      placeable: layer.locked ? undefined : { mesh, place },
+      update: next => {
+        if (next.type !== 'noise' || !next.cloudEnabled) return false;
+        currentLayer = next;
+        noise.configure({ ...noiseParamsFromLayer(next), smokeEnabled: true });
+        applyBlend(material, next.sourceBlendFactor, next.destBlendFactor);
+        const nextSize = Math.max(0.001, Math.min(5, next.apparentSize ?? 0.5));
+        const nextAspect = Math.max(0.05, Math.min(20, next.aspect ?? 1));
+        mesh.scale.set(nextSize * nextAspect / (halfSize * aspect), nextSize / halfSize, 1);
+        place(next.dirLonDeg ?? 0, next.dirLatDeg ?? 0);
+        object.placeable = next.locked ? undefined : { mesh, place };
+        object.ready = noise.smokePending ? noise.ready : undefined;
+        return true;
+      },
+      dispose: () => { geometry.dispose(); noise.dispose(); },
+    };
+    return object;
   }
 
   private buildNoiseLayer(layer: Extract<Layer, { type: 'noise' }>, index: number): LayerObject {
     if (layer.cloudEnabled) return this.buildCloudLayer(layer, index);
-    const cubemap = new NoiseCubemap(Math.max(4, layer.previewTextureSize));
-    cubemap.render(this.renderer, noiseParamsFromLayer(layer));
-
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      vertexShader: SKY_VERT,
-      fragmentShader: SKY_FRAG,
-      side: THREE.BackSide,
-      uniforms: { cubeMap: { value: cubemap.texture } },
-    });
-    applyBlend(material, layer.sourceBlendFactor, layer.destBlendFactor);
-
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(SKY_RADIUS * 2, SKY_RADIUS * 2, SKY_RADIUS * 2),
-      material,
-    );
-    mesh.renderOrder = index;
-
-    const group = new THREE.Group();
-    group.add(mesh);
-    return {
-      group,
-      ready: cubemap.ready.then(() => { if (layer.smokeEnabled) cubemap.renderConfigured(this.renderer); }),
-      dispose: () => {
-        mesh.geometry.dispose();
-        material.dispose();
-        cubemap.dispose();
-      },
-    };
+    return this.buildSkyNoiseLayer(layer, index);
   }
 
   private buildPointsLayer(layer: Extract<Layer, { type: 'points' }>, index: number): LayerObject {
@@ -1188,7 +1251,7 @@ export class PreviewScene {
         if (tex) {
           material.map = tex;
           material.needsUpdate = true;
-          mesh.visible = true;
+          mesh.visible = true; this.flatDirty = true; this.capturesDirty = this.layerObjects.some(o => o.prepare);
         }
       });
     }
@@ -1295,6 +1358,9 @@ export class PreviewScene {
         if (this.activeTileSources === 0 && !this.disposed) {
           const gl = this.renderer.getContext();
           if (this.tileDitherWasEnabled) gl.enable(gl.DITHER); else gl.disable(gl.DITHER);
+          const pendingQuality = this.pendingPreviewQuality;
+          this.pendingPreviewQuality = undefined;
+          if (pendingQuality) this.setPreviewQuality(pendingQuality);
           this.renderer.setAnimationLoop(this.renderFrame);
         }
       }
@@ -1529,7 +1595,7 @@ export class PreviewScene {
   private renderFlatView() {
     if (!this.flatDirty) return;
     if (!this.flatResources) {
-      const target = new THREE.WebGLCubeRenderTarget(512, { type: THREE.HalfFloatType, depthBuffer: false, generateMipmaps: false });
+      const target = new THREE.WebGLCubeRenderTarget(PREVIEW_QUALITY[this.previewQuality].panorama, { type: THREE.HalfFloatType, depthBuffer: false, generateMipmaps: false });
       const cube = new THREE.CubeCamera(0.1, SKY_RADIUS * 4, target);
       const material = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: EQUIRECT_VERT, fragmentShader: EQUIRECT_FRAG, depthTest: false, depthWrite: false, uniforms: { cubeMap: { value: target.texture } } });
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material), scene = new THREE.Scene(); scene.add(mesh);
@@ -1540,7 +1606,7 @@ export class PreviewScene {
     this.scene.traverse(o => {
       if (!(o instanceof THREE.Points) || !(o.material instanceof THREE.ShaderMaterial)) return;
       const uniform = o.material.uniforms.sizeScale;
-      if (uniform) { sizes.push({ uniform, value: uniform.value }); uniform.value = 0.5; }
+      if (uniform) { sizes.push({ uniform, value: uniform.value }); uniform.value = 0.5 * r.target.width / 512; }
     });
     try { r.cube.update(this.renderer, this.scene); } finally { for (const s of sizes) s.uniform.value = s.value; }
     const size = this.renderer.getSize(new THREE.Vector2()), width = Math.min(size.x, size.y * 2), height = width / 2;
@@ -1550,15 +1616,18 @@ export class PreviewScene {
     this.flatDirty = false;
   }
 
-  resize(width: number, height: number): void {
+  resize(width: number, height: number, recapture = true): void {
+    this.viewportWidth = Math.max(1, width); this.viewportHeight = Math.max(1, height);
     this.flatDirty = true;
-    const ratio = Math.min(window.devicePixelRatio, 1.5, Math.sqrt(4 * 1024 * 1024 / Math.max(1, width * height)));
+    const ratio = previewPixelRatio(this.previewQuality, window.devicePixelRatio, width, height);
+    this.previewStarScale = ratio / previewPixelRatio('high', window.devicePixelRatio, width, height);
     this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(Math.max(1, width), Math.max(1, height), false);
-    this.camera.aspect = width / height;
+    this.camera.aspect = this.viewportWidth / this.viewportHeight;
     this.camera.updateProjectionMatrix();
+    this.applyStarZoom();
     // lens captures scale point stars by viewport height — refresh them
-    if (this.layerObjects.some((o) => o.prepare)) this.runPrepares();
+    if (recapture && this.layerObjects.some((o) => o.prepare)) this.runPrepares();
   }
 
   dispose(): void {
@@ -1577,6 +1646,7 @@ export class PreviewScene {
     this.setLayers([]);
     this.controls.dispose();
     this.releaseFlatView();
+    this.maskCache.clear();
     this.renderer.dispose();
   }
 }
