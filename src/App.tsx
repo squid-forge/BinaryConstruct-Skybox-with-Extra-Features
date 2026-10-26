@@ -11,8 +11,10 @@ import { downloadBlob, floatToPngBlob } from './export/exporter';
 import { buildProjectBundle, mimeForFileName, openProjectBundle } from './export/projectBundle';
 import { PreviewScene } from './render/PreviewScene';
 import { PREVIEW_QUALITY, type PreviewQuality } from './render/previewQuality';
+import type { PreviewProjection } from './render/previewProjection';
 import { chooseExportDirectory } from './export/diskExport';
 import { HdrPreview } from './ui/HdrPreview';
+import { HdrTuning } from './ui/HdrTuning';
 import { Inspector } from './ui/Inspector';
 import { LayerList } from './ui/LayerList';
 import { ScriptTab } from './ui/ScriptTab';
@@ -62,8 +64,9 @@ export default function App() {
   const assetVersionRef = useRef(0), nextAssetVersionRef = useRef(1);
   const assetSnapshotsRef = useRef(new Map<number, SpriteAsset[]>([[0, []]]));
   const [selected, setSelected] = useState(0);
-  const [flatView, setFlatView] = useState(false);
-  const [viewFov, setViewFov] = useState(80);
+  const [projection, setProjection] = useState<PreviewProjection>('placement');
+  const flatView = projection === '2d';
+  const [viewFov, setViewFov] = useState(60);
   const [previewQuality, setPreviewQuality] = useState<PreviewQuality>(() => {
     try {
       const saved = localStorage.getItem('skybox.previewQuality');
@@ -82,6 +85,9 @@ export default function App() {
   const [exportHdr, setExportHdr] = useState(false);
   const [hdrSoftness, setHdrSoftness] = useState(1);
   const [hdrPreviewOpen, setHdrPreviewOpen] = useState(false);
+  const [hdrTuning, setHdrTuning] = useState(false);
+  const [hdrExposure, setHdrExposure] = useState(0);
+  const [hdrMapping, setHdrMapping] = useState<'reinhard' | 'linear'>('reinhard');
   const [hdrPicking, setHdrPicking] = useState(false);
   const [hdrPreviewCenter, setHdrPreviewCenter] = useState({ lonDeg: 0, latDeg: 0 });
   const [exportBatch, setExportBatch] = useState(1);
@@ -95,6 +101,7 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<PreviewScene | null>(null);
+  useEffect(() => { sceneRef.current?.setHdrDisplay(hdrTuning, hdrExposure, hdrMapping); }, [hdrTuning, hdrExposure, hdrMapping]);
   const dirtyRef = useRef<Map<number, Layer>>(new Map());
   const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -588,14 +595,15 @@ export default function App() {
             </select>
           </div>
           <p className="hint preview-quality-hint">Preview only. Exports and HDR crops keep their selected quality.</p>
-          <select aria-label="Viewport projection" value={flatView ? '2d' : '3d'} onChange={e => { const flat = e.target.value === '2d'; setFlatView(flat); sceneRef.current?.setViewMode(flat); }}>
-            <option value="3d">3D sky view</option><option value="2d">2D panorama view</option>
+          <select aria-label="Viewport projection" value={projection} onChange={e => { const mode = e.target.value as PreviewProjection; setProjection(mode); sceneRef.current?.setProjectionMode(mode); }}>
+            <option value="placement">3D placement (low distortion)</option><option value="3d">3D wide view</option><option value="2d">2D panorama view</option>
           </select>
-          <button type="button" disabled={exporting} onClick={() => { setHdrPreviewCenter(sceneRef.current?.viewCenter() ?? { lonDeg: 0, latDeg: 0 }); setHdrPicking(false); setHdrPreviewOpen(true); }}>HDR preview</button>
-          {!flatView && <SliderField label="Field of view" value={viewFov} min={15} max={120} step={1} onChange={fov => sceneRef.current?.setFov(fov)} />}
+          <button type="button" disabled={exporting || hdrPreviewOpen} aria-pressed={hdrTuning} onClick={() => { setHdrTuning(v => !v); setTab('layers'); }}>Tune HDR</button>
+          {!flatView && <SliderField label="Field of view" value={viewFov} min={15} max={projection === 'placement' ? 70 : 120} step={1} onChange={fov => sceneRef.current?.setFov(fov)} />}
+          {projection === 'placement' && <p className="hint preview-quality-hint">Narrower view for accurate placement. FOV follows the longest viewport edge. Right-drag to look around; scroll to zoom.</p>}
           {flatView && <p className="hint">Full 360 x 180 panorama. Drag clouds here; switch to 3D to adjust FOV.</p>}
         </div>
-        <nav className="tabs">
+        <nav className="tabs" hidden={hdrTuning}>
           {(['layers', 'stars', 'sprites', 'script'] as const).map((t) => (
             <button
               key={t}
@@ -616,6 +624,7 @@ export default function App() {
               <button type="button" ref={exportBackRef} disabled={exporting} onClick={() => { setExportOpen(false); exportButtonRef.current?.focus(); }}>Back to editor</button>
             </div>
             <div className="export-options">
+            <button type="button" disabled={exporting} onClick={() => { setExportOpen(false); setTab('layers'); setHdrTuning(true); }}>Tune item HDR in live preview</button>
             <div className="field-row">
               <label htmlFor="export-resolution">Resolution</label>
               <select id="export-resolution" disabled={exporting} value={exportSize} onChange={(e) => setExportSize(Number(e.target.value))}>
@@ -738,7 +747,9 @@ export default function App() {
           </section>
         )}
 
-        {tab === 'layers' && (
+        {hdrTuning && <HdrTuning layers={layers} selected={selected} onSelect={setSelected} onChange={updateLayer}
+          exposure={hdrExposure} onExposure={setHdrExposure} mapping={hdrMapping} onMapping={setHdrMapping} onClose={() => setHdrTuning(false)} />}
+        {!hdrTuning && tab === 'layers' && (
           <div className="asset-tab layers-tab">
             <label className="field">
               Preset
@@ -834,7 +845,7 @@ export default function App() {
           </div>
         )}
 
-        {tab === 'stars' && (
+        {!hdrTuning && tab === 'stars' && (
           <StarsTab
             onSpritesChanged={refreshUserTextureLayers}
             onViewportPreview={(canvas, occludes) => sceneRef.current?.setPcgPreview(canvas, occludes)}
@@ -842,10 +853,10 @@ export default function App() {
             onAddToSky={addBakeToSky}
           />
         )}
-        {tab === 'sprites' && (
+        {!hdrTuning && tab === 'sprites' && (
           <SpritesTab version={spriteVersion} onChanged={refreshUserTextureLayers} />
         )}
-        {tab === 'script' && (
+        {!hdrTuning && tab === 'script' && (
           <ScriptTab layers={layers} onApply={(next) => loadLayers(next, true)} />
         )}
       </aside>

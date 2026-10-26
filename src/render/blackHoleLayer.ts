@@ -55,6 +55,8 @@ uniform float discAmt;
 uniform float discDop;
 uniform float discKel;
 uniform float discSeed;
+uniform float hdrPowerAmt;
+uniform float hdrMultiplierAmt;
 
 in vec3 vWorld;
 out vec4 fragColor;
@@ -214,11 +216,14 @@ void main() {
   col *= smoothstep(thetaH - aaT * 1.5, thetaH + aaT * 1.5, theta);
 
   // photon ring just outside the horizon, sigma never below the pixel size
-  col += vec3(1.0, 0.85, 0.6) * ringAmt
+  vec3 emission = vec3(1.0, 0.85, 0.6) * ringAmt
     * exp(-pow((theta - thetaH * 1.16) / max(thetaH * 0.09, aaT * 1.5), 2.0));
 
   // analytic accretion disc (primary + secondary geodesic images)
-  col += discColor(dir, theta);
+  emission += discColor(dir, theta);
+  // Adjust only this object's emission: the captured background already
+  // carries the HDR settings of the layers below it.
+  col += pow(max(emission, vec3(0.0)), vec3(hdrPowerAmt)) * hdrMultiplierAmt;
 
   // alpha feather to the true background (NormalBlending draws the real
   // scene wherever alpha < 1)
@@ -277,29 +282,41 @@ function getBlackbodyLutTexture(): THREE.DataTexture {
 // the shadow's apparent size), so they are cached per rounded distance.
 const TRAJ_B_MAX = 28;
 const TRAJ_PHI_MAX = 3 * Math.PI;
-const trajCache = new Map<number, THREE.DataTexture>();
+const trajCache = new Map<number, { texture: THREE.DataTexture; users: number }>();
+function trimTrajectoryCache(): void {
+  for (const [key, entry] of trajCache) {
+    if (trajCache.size <= 12) break;
+    if (entry.users === 0) { trajCache.delete(key); entry.texture.dispose(); }
+  }
+}
 function getTrajectoryLutTexture(thetaH: number): THREE.DataTexture {
   const r0 = Math.min(200, Math.max(8, CRITICAL_B / Math.sin(thetaH)));
   const key = Math.round(r0 * 2);
-  let tex = trajCache.get(key);
-  if (!tex) {
+  let entry = trajCache.get(key);
+  if (!entry) {
     const lut = buildTrajectoryLut(key / 2, 384, 160, TRAJ_B_MAX, TRAJ_PHI_MAX);
-    tex = new THREE.DataTexture(toHalf(lut.data), lut.nB, lut.nPhi, THREE.RGFormat, THREE.HalfFloatType);
+    const tex = new THREE.DataTexture(toHalf(lut.data), lut.nB, lut.nPhi, THREE.RGFormat, THREE.HalfFloatType);
     tex.minFilter = THREE.LinearFilter;
     tex.magFilter = THREE.LinearFilter;
     tex.needsUpdate = true;
-    // bound the MAP size only - never dispose() on eviction, an evicted
-    // texture may still be referenced by a live material (three.js would
-    // silently re-upload it and the cache would churn instead of help)
-    if (trajCache.size > 12) {
-      trajCache.delete(trajCache.keys().next().value as number);
-    }
-    trajCache.set(key, tex);
+    entry = { texture: tex, users: 0 };
   }
-  return tex;
+  entry.users++;
+  trajCache.delete(key); trajCache.set(key, entry);
+  trimTrajectoryCache();
+  return entry.texture;
+}
+
+function releaseTrajectoryTexture(texture: THREE.DataTexture): void {
+  for (const entry of trajCache.values()) if (entry.texture === texture) {
+    entry.users--; break;
+  }
+  trimTrajectoryCache();
 }
 
 export interface BlackHoleObject {
+  updateHdr: (layer: BlackHoleLayer) => void;
+  updateEmission: (layer: BlackHoleLayer) => boolean;
   ready?: Promise<void>;
   group: THREE.Group;
   /**
@@ -398,6 +415,8 @@ export function buildBlackHoleObject(
       discDop: { value: layer.discDoppler },
       discKel: { value: layer.discKelvin },
       discSeed: { value: (layer.seed >>> 0) % 977 },
+      hdrPowerAmt: { value: layer.hdrPower ?? 1 },
+      hdrMultiplierAmt: { value: layer.hdrMultiplier ?? 1 },
     },
     depthTest: false,
     depthWrite: false,
@@ -405,6 +424,7 @@ export function buildBlackHoleObject(
     blending: THREE.NormalBlending,
   });
   const lensMesh = new THREE.Mesh(lensGeo, lensMat);
+  let disposed = false;
   lensMesh.position.copy(dir).multiplyScalar(skyRadius * 0.97);
   lensMesh.lookAt(0, 0, 0);
   lensMesh.renderOrder = index + 0.5;
@@ -414,11 +434,12 @@ export function buildBlackHoleObject(
 
   // A single editable layer owns both its gravitational lens and its nebula jets.
   const jetMeshes: Array<THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>> = [];
+  const jetIndices: number[] = [];
   const jetResources: Array<{ ready: Promise<void>; dispose: () => void }> = [];
-  if (layer.jetEnabled) for (const component of [
+  if (layer.jetEnabled) for (const [componentIndex, component] of [
     { ...layer, seed: layer.jetSeed ?? layer.seed, visible: layer.jetBaseVisible !== false },
     ...(layer.jetLayers ?? []),
-  ]) {
+  ].entries()) {
     if (component.visible === false || component.jetEnabled === false) continue;
     const resources = nativePlumeMaterial(component, layer);
     jetResources.push(resources);
@@ -427,6 +448,7 @@ export function buildBlackHoleObject(
     const mat = resources.material;
     const jetMesh = new THREE.Mesh(geo, mat);
     jetMeshes.push(jetMesh);
+    jetIndices.push(componentIndex);
     jetMesh.position.copy(dir).multiplyScalar(skyRadius * 0.96);
     jetMesh.lookAt(0, 0, 0);
     jetMesh.renderOrder = index + 0.6;
@@ -471,6 +493,26 @@ export function buildBlackHoleObject(
 
   return {
     group,
+    updateEmission: next => {
+      const shape = (value: BlackHoleLayer) => JSON.stringify(value, (key, entry) =>
+        ['hdrPower', 'hdrMultiplier', 'jetHdrPower', 'jetBrightness'].includes(key) ? undefined : entry);
+      if (shape(next) !== shape(layer)) return false;
+      lensMat.uniforms.hdrPowerAmt.value = next.hdrPower ?? 1;
+      lensMat.uniforms.hdrMultiplierAmt.value = next.hdrMultiplier ?? 1;
+      const components = [next, ...(next.jetLayers ?? [])];
+      jetMeshes.forEach((mesh, i) => {
+        const component = components[jetIndices[i]];
+        mesh.material.uniforms.hdrPowerAmt.value = Math.max(0.01, Math.min(20, component.jetHdrPower ?? 1));
+        mesh.material.uniforms.hdrMultiplierAmt.value = next.hdrMultiplier ?? 1;
+        mesh.material.uniforms.plumeEmit.value.y = Math.max(0, Math.min(100, component.jetBrightness ?? 1));
+      });
+      return true;
+    },
+    updateHdr: next => {
+      lensMat.uniforms.hdrPowerAmt.value = next.hdrPower ?? 1;
+      lensMat.uniforms.hdrMultiplierAmt.value = next.hdrMultiplier ?? 1;
+      for (const mesh of jetMeshes) mesh.material.uniforms.hdrMultiplierAmt.value = next.hdrMultiplier ?? 1;
+    },
     ready: Promise.all(jetResources.map(r => r.ready)).then(() => {}),
     placeable: layer.locked ? undefined : { mesh: proxy, place },
     prepare: (renderer, scene, pointScale = 1) => {
@@ -499,8 +541,11 @@ export function buildBlackHoleObject(
       }
     },
     dispose: () => {
+      if (disposed) return;
+      disposed = true;
       lensGeo.dispose();
       lensMat.dispose();
+      releaseTrajectoryTexture(lensMat.uniforms.trajLut.value);
       proxyGeo.dispose();
       proxyMat.dispose();
       rt.dispose();
