@@ -14,11 +14,13 @@ I tested and used 16K HDR export in Unreal Engine. The other additions remain la
 - More galactic band and core controls, with independently editable nebula stacks.
 - Native black-hole jet stacks with adjustable size, curves, launch gaps, colors and tips, plus a plumes-only option.
 - Undo/redo, layer visibility and drag-and-drop reordering.
-- 2D panorama view, FOV controls, lower-resolution preview settings and HDR smoothness preview.
+- Low-distortion 3D placement, wide and panorama views, preview quality controls and per-item HDR tuning.
 - Higher-resolution procedural suns, planets and sprite effects.
 - Export UI and smoke seam fixes.
 
 ![Nebula clouds and black-hole jets](Docs/Examples/nebula-jets.png)
+
+The placement view reduces edge stretching and dragging no longer snaps items to the pointer. Wide views still stretch near the edges. Preview detail can differ from export, and complex nebulae or large lens captures can be slow or exceed GPU memory.
 
 ## Run locally
 

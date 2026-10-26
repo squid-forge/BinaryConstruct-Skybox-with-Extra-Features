@@ -233,7 +233,7 @@ void main(void) {
     color = smokeShade(smokeUv, color) * density + smokeSources(smokeUv);
     noiseSum = 1.0 - exp(-density * smokeMedium.y * smokeMedium.z);
   }
-  fragColor = smokeEnabled ? vec4(color * hdrMultiplierAmt, noiseSum) : vec4(color, noiseSum) * hdrMultiplierAmt;
+  fragColor = vec4(color * hdrMultiplierAmt, clamp(noiseSum, 0.0, 1.0));
 }
 `;
 

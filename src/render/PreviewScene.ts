@@ -18,6 +18,8 @@ import type { CubeMask } from '../core/placement';
 import { generatePoints, generatePointsMasked, generateStarSizes } from '../core/points';
 import { MsvcRng } from '../core/rng';
 import { applyBlend } from './blend';
+import { attachLayerHdr } from './layerHdr';
+import { PLACEMENT_ZOOM_LEVELS, WIDE_ZOOM_LEVELS, previewVerticalFov, type PreviewProjection } from './previewProjection';
 import { loadFlareTexture } from './flareTextures';
 import { nativeBodyMaterial } from './nativeBodyMaterial';
 import { applyNativeFlare } from './nativeFlare';
@@ -45,6 +47,7 @@ function loadBundledCatalog(): Promise<CatalogStar[]> {
 
 interface LayerObject {
   group: THREE.Group;
+  updateHdr?: (layer: Layer) => void;
   /** Reuse an existing preview's resources when its layer shape permits it. */
   update?: (layer: Layer) => boolean;
   /** resolves when async content (catalog fetch, textures) is attached */
@@ -121,10 +124,22 @@ export class PreviewScene {
     this.controls.update();
     if (this.capturesDirty) { this.capturesDirty = false; this.captureAll(); }
     if (this.flatView) this.renderFlatView();
-    else if (this.flatDirty) { this.renderer.render(this.scene, this.camera); this.flatDirty = false; }
+    else if (this.flatDirty) { this.renderPerspective(); this.flatDirty = false; }
+    else if (this.hdrDisplay?.dirty) this.presentHdr();
   };
   private capturesDirty = false;
+  private capturesFrom = 0;
+  private hdrDisplay?: {
+    target?: THREE.WebGLRenderTarget; scene: THREE.Scene; camera: THREE.Camera;
+    material: THREE.ShaderMaterial; mesh: THREE.Mesh; dirty: boolean;
+  };
+  private displayExposure = { value: 1 };
+  private displayMapping = { value: 0 };
   private flatView = false;
+  private projection: PreviewProjection = 'placement';
+  private viewFov = 60;
+  private placementFov = 60;
+  private wideFov = 80;
   private flatDirty = true;
   onFovChanged?: (fov: number) => void;
   private flatResources?: { target: THREE.WebGLCubeRenderTarget; cube: THREE.CubeCamera; scene: THREE.Scene; camera: THREE.Camera; mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial> };
@@ -141,8 +156,8 @@ export class PreviewScene {
   private maskCache = new Map<string, CubeMask>();
   private grid: THREE.LineSegments | null = null;
   /** Discrete FOV zoom levels (zoomed in -> out); wheel steps through them. */
-  private static readonly ZOOM_LEVELS = [15, 30, 45, 60, 80, 100, 120];
-  private zoomIndex = 4;
+  private get zoomLevels(): readonly number[] { return this.projection === '3d' ? WIDE_ZOOM_LEVELS : PLACEMENT_ZOOM_LEVELS; }
+  private zoomIndex = 3;
   private onWheel: (e: WheelEvent) => void;
   private wheelTarget: HTMLCanvasElement;
 
@@ -156,7 +171,7 @@ export class PreviewScene {
     // raw byte parity with the original — no color management
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
 
-    this.camera = new THREE.PerspectiveCamera(80, 1, 0.1, SKY_RADIUS * 4);
+    this.camera = new THREE.PerspectiveCamera(60, 1, 0.1, SKY_RADIUS * 4);
     // slightly off-origin so OrbitControls has a direction to orbit
     this.camera.position.set(0, 0, 0.01);
 
@@ -194,7 +209,7 @@ export class PreviewScene {
           const [a, b] = [...this.touchPts.values()];
           this.pinch = {
             startDist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
-            startFov: this.camera.fov,
+            startFov: this.viewFov,
           };
           e.stopImmediatePropagation();
           return;
@@ -206,6 +221,11 @@ export class PreviewScene {
       if (hit === null) return;
       this.dragIndex = hit;
       this.dragPointerId = e.pointerId;
+      this.dragPointerDirection = this.pointerRayDir(e);
+      const layer = this.previewLayers[hit];
+      this.dragStartDirection = layer && 'dirLonDeg' in layer && typeof layer.dirLonDeg === 'number'
+        ? lonLatToDir(layer.dirLonDeg, layer.dirLatDeg ?? 0)
+        : this.layerObjects[hit].placeable!.mesh.getWorldPosition(new THREE.Vector3()).normalize();
       this.controls.enabled = false;
       canvas.setPointerCapture(e.pointerId);
       canvas.style.cursor = 'grabbing';
@@ -232,6 +252,10 @@ export class PreviewScene {
       const obj = this.layerObjects[this.dragIndex];
       if (!obj?.placeable) return;
       const dir = this.pointerRayDir(e);
+      if (this.dragPointerDirection && this.dragStartDirection) {
+        this.dragRotation.setFromUnitVectors(this.dragPointerDirection, dir);
+        dir.copy(this.dragStartDirection).applyQuaternion(this.dragRotation).normalize();
+      }
       const { lonDeg, latDeg } = dirToLonLat(dir);
       this.dragLonLat = { lonDeg, latDeg };
       obj.placeable.place(lonDeg, latDeg); this.flatDirty = true;
@@ -258,7 +282,7 @@ export class PreviewScene {
     this.onWheel = (e: WheelEvent) => {
       e.preventDefault();
       if (this.flatView) return;
-      const levels = PreviewScene.ZOOM_LEVELS;
+      const levels = this.zoomLevels;
       const step = e.deltaY > 0 ? 1 : -1; // wheel down = zoom out
       this.zoomIndex = Math.min(levels.length - 1, Math.max(0, this.zoomIndex + step));
       this.setFov(levels[this.zoomIndex]);
@@ -305,6 +329,12 @@ export class PreviewScene {
     const changed = [...keys].filter(key => JSON.stringify(previous?.[key as keyof Layer]) !== JSON.stringify(layer[key as keyof Layer]));
     // An explicit refresh with identical fields can mean a replaced image.
     const metadataOnly = previous && changed.length > 0 && changed.every(key => key === 'name' || key === 'visible');
+    if (changed.length > 0 && changed.every(key => key === 'hdrPower' || key === 'hdrMultiplier') && old.updateHdr) {
+      old.updateHdr(layer); this.invalidateRadiance(index); return;
+    }
+    if (layer.type === 'blackhole' && old.update?.(layer)) {
+      this.invalidateRadiance(index); return;
+    }
     if (metadataOnly || old.update?.(this.previewLayerParams(layer))) {
       const visibilityChanged = old.appVisible !== visible;
       old.appVisible = visible; old.group.visible = visible && !this.skyHidden;
@@ -320,7 +350,7 @@ export class PreviewScene {
     obj.group.visible = visible && !this.skyHidden;
     this.scene.add(obj.group);
     try { this.renderer.compile(this.scene, this.camera); }
-    catch (error) { this.scene.remove(obj.group); obj.dispose(); this.scene.add(old.group); throw error; }
+    catch (error) { this.scene.remove(obj.group); obj.dispose(); this.scene.add(old.group); this.previewLayers[index] = previous; throw error; }
     old.dispose();
     this.layerObjects[index] = obj;
     this.applyStarZoom();
@@ -375,6 +405,9 @@ export class PreviewScene {
   private dragIndex: number | null = null;
   private dragPointerId: number | null = null;
   private dragLonLat: { lonDeg: number; latDeg: number } | null = null;
+  private dragPointerDirection: THREE.Vector3 | null = null;
+  private dragStartDirection: THREE.Vector3 | null = null;
+  private dragRotation = new THREE.Quaternion();
   private onPointerDown: (e: PointerEvent) => void;
   private onPointerMove: (e: PointerEvent) => void;
   private onPointerUp: (e: PointerEvent) => void;
@@ -393,14 +426,18 @@ export class PreviewScene {
   /** Continuous FOV zoom (pinch + wheel), clamped to the wheel's range. */
   setFov(fov: number): void {
     if (!Number.isFinite(fov)) return;
-    const levels = PreviewScene.ZOOM_LEVELS;
-    this.camera.fov = Math.min(levels[levels.length - 1], Math.max(levels[0], fov));
+    const levels = this.zoomLevels;
+    this.viewFov = Math.min(levels[levels.length - 1], Math.max(levels[0], fov));
+    if (this.projection === 'placement') this.placementFov = this.viewFov;
+    else if (this.projection === '3d') this.wideFov = this.viewFov;
+    this.camera.fov = previewVerticalFov(this.viewFov, this.camera.aspect, this.projection === 'placement');
     this.camera.updateProjectionMatrix();
     // keep drag speed proportional to the visible field
     this.controls.rotateSpeed = -0.35 * (this.camera.fov / 80);
     this.applyStarZoom();
-    this.zoomIndex = levels.reduce((best, n, i) => Math.abs(n - this.camera.fov) < Math.abs(levels[best] - this.camera.fov) ? i : best, 0);
-    this.flatDirty = true; this.onFovChanged?.(this.camera.fov);
+    this.zoomIndex = levels.reduce((best, n, i) => Math.abs(n - this.viewFov) < Math.abs(levels[best] - this.viewFov) ? i : best, 0);
+    this.flatDirty = true; this.onFovChanged?.(this.viewFov);
+    if (this.layerObjects.some(o => o.prepare)) this.runPrepares();
   }
 
   /**
@@ -429,10 +466,10 @@ export class PreviewScene {
     if (!inPinch) return false;
     if (this.touchPts.size === 0) {
       this.pinch = null;
-      const levels = PreviewScene.ZOOM_LEVELS;
+      const levels = this.zoomLevels;
       this.zoomIndex = levels.reduce(
         (best, fov, i) =>
-          Math.abs(fov - this.camera.fov) < Math.abs(levels[best] - this.camera.fov) ? i : best,
+          Math.abs(fov - this.viewFov) < Math.abs(levels[best] - this.viewFov) ? i : best,
         0,
       );
     }
@@ -456,6 +493,8 @@ export class PreviewScene {
       else this.onLayerDragCancelled?.(index);
     }
     this.dragLonLat = null;
+    this.dragPointerDirection = null;
+    this.dragStartDirection = null;
   }
 
   /** world direction of the pointer ray (camera sits at the origin) */
@@ -581,8 +620,18 @@ export class PreviewScene {
   }
 
   /** Re-capture backgrounds for distortion layers after any scene change. */
+  private invalidateRadiance(index: number): void {
+    this.flatDirty = true;
+    // Emission edits cannot change this lens's own background, or earlier lenses.
+    const start = index + 1;
+    if (!this.layerObjects.slice(start).some(o => o.prepare && o.group.visible)) return;
+    this.capturesFrom = this.capturesDirty ? Math.min(this.capturesFrom, start) : start;
+    this.capturesDirty = true;
+  }
+
   private runPrepares(): void {
     this.flatDirty = true;
+    this.capturesFrom = 0;
     this.capturesDirty = this.layerObjects.some(o => o.prepare);
     // async content (catalog billboards, flare textures) lands later —
     // re-capture once it does, unless the scene was rebuilt in the meantime
@@ -591,7 +640,7 @@ export class PreviewScene {
     if (pending.length) {
       this.capturesDirty = false;
       void Promise.all(pending).then(() => {
-        if (gen === this.prepareGen && !this.disposed) { this.flatDirty = true; this.capturesDirty = this.layerObjects.some(o => o.prepare); }
+        if (gen === this.prepareGen && !this.disposed) { this.flatDirty = true; this.capturesFrom = 0; this.capturesDirty = this.layerObjects.some(o => o.prepare); }
       });
     }
   }
@@ -611,10 +660,12 @@ export class PreviewScene {
     // size in the capture matches the live view it's composited into
     const pointScale = this.flatView
       ? this.bhCaptureSize / 1024 / this.starZoomFactor() / this.previewStarScale
-      : (this.bhCaptureSize * (this.camera.fov / 90)) / Math.max(1, this.renderer.domElement.height);
-    PreviewScene.prepareObjects(this.layerObjects, this.renderer, this.scene, pointScale);
-    if (this.skyHidden) this.applyVisibility();
-    if (this.pcgQuad) this.pcgQuad.mesh.visible = pcgVisible;
+      : this.bhCaptureSize * Math.tan(this.camera.fov * Math.PI / 360) / Math.max(1, this.renderer.domElement.height);
+    try { PreviewScene.prepareObjects(this.layerObjects, this.renderer, this.scene, pointScale, this.capturesFrom); }
+    finally {
+      if (this.skyHidden) this.applyVisibility();
+      if (this.pcgQuad) this.pcgQuad.mesh.visible = pcgVisible;
+    }
   }
 
   /**
@@ -627,17 +678,35 @@ export class PreviewScene {
     renderer: THREE.WebGLRenderer,
     scene: THREE.Scene,
     pointScale = 1,
+    start = 0,
   ): void {
     objs.forEach((obj, i) => {
-      if (!obj.prepare) return;
+      if (!obj.prepare || i < start) return;
       const above = objs.slice(i + 1).map((o) => [o.group, o.group.visible] as const);
       for (const [g] of above) g.visible = false;
-      obj.prepare(renderer, scene, pointScale);
-      for (const [g, v] of above) g.visible = v;
+      try { if (obj.group.visible) obj.prepare(renderer, scene, pointScale); }
+      finally { for (const [g, v] of above) g.visible = v; }
     });
   }
 
   private buildLayer(layer: Layer, index: number, captureSize = this.bhCaptureSize): LayerObject {
+    const object = this.buildLayerObject(layer, index, captureSize);
+    if (['points', 'billboards', 'galaxy', 'sprite'].includes(layer.type)) {
+      const hdr = attachLayerHdr(object.group, layer);
+      object.updateHdr = hdr.update;
+      if (object.ready) object.ready = object.ready.then(() => hdr.install());
+    } else if ((layer.type === 'noise' && layer.cloudEnabled) || layer.type === 'sun' || layer.type === 'planet') {
+      object.updateHdr = next => object.group.traverse(o => {
+        if (o instanceof THREE.Mesh && o.material instanceof THREE.ShaderMaterial && o.material.uniforms.hdrPowerAmt) {
+          o.material.uniforms.hdrPowerAmt.value = next.hdrPower ?? 1;
+          o.material.uniforms.hdrMultiplierAmt.value = next.hdrMultiplier ?? 1;
+        }
+      });
+    }
+    return object;
+  }
+
+  private buildLayerObject(layer: Layer, index: number, captureSize: number): LayerObject {
     switch (layer.type) {
       case 'noise': return this.buildNoiseLayer(layer, index);
       case 'points': return this.buildPointsLayer(layer, index);
@@ -646,7 +715,10 @@ export class PreviewScene {
       case 'galaxy': return this.buildGalaxyLayer(layer, index);
       case 'sun': return this.buildBodyLayer(layer, index);
       case 'planet': return this.buildBodyLayer(layer, index);
-      case 'blackhole': return buildBlackHoleObject(layer, index, SKY_RADIUS, layer.coreVisible === false ? 1 : captureSize);
+      case 'blackhole': {
+        const object = buildBlackHoleObject(layer, index, SKY_RADIUS, layer.coreVisible === false ? 1 : captureSize);
+        return { ...object, update: next => next.type === 'blackhole' && object.updateEmission(next), updateHdr: next => { if (next.type === 'blackhole') object.updateHdr(next); } };
+      }
       case 'sprite': return this.buildSpriteLayer(layer, index);
     }
   }
@@ -726,20 +798,22 @@ export class PreviewScene {
       aspect: layer.aspect,
       rotationDeg: layer.rotationDeg,
     });
-    const mesh = obj.placeable!.mesh;
+    // Locked layers deliberately have no drag handle, but still render.
+    const mesh = obj.group.children[0] as THREE.Mesh;
+    let disposed = false;
     mesh.visible = false;
     const ready = layer.texture
       && !applyNativeFlare(mesh.material as THREE.MeshBasicMaterial, layer.texture)
       ? loadFlareTexture(layer.texture).then((loaded) => {
-          if (loaded) {
+          if (loaded && !disposed) {
             (mesh.material as THREE.MeshBasicMaterial).map = loaded;
             (mesh.material as THREE.MeshBasicMaterial).needsUpdate = true;
-            mesh.visible = true; this.flatDirty = true; this.capturesDirty = this.layerObjects.some(o => o.prepare);
+            mesh.visible = true; this.flatDirty = true; this.capturesFrom = 0; this.capturesDirty = this.layerObjects.some(o => o.prepare);
           }
         })
       : undefined;
     if (layer.texture && !ready) mesh.visible = true;
-    return { ...obj, ready };
+    return { ...obj, ready, dispose: () => { disposed = true; obj.dispose(); } };
   }
 
   /** Built-in bodies evaluate surface detail at each output pixel. */
@@ -778,7 +852,7 @@ export class PreviewScene {
       glslVersion: THREE.GLSL3,
       vertexShader: POINTS_VERT,
       fragmentShader: POINTS_FRAG,
-      uniforms: { sizeScale: { value: this.starZoomFactor() } },
+      uniforms: { sizeScale: { value: 1 } },
     });
     material.userData.baseSize = 1;
     applyBlend(material, layer.sourceBlendFactor, layer.destBlendFactor);
@@ -990,7 +1064,7 @@ export class PreviewScene {
 
   /** Pixel-size stars scale with zoom so they grow as the view narrows. */
   private starZoomFactor(): number {
-    return 80 / this.camera.fov;
+    return Math.tan(40 * Math.PI / 180) / Math.tan(this.camera.fov * Math.PI / 360);
   }
 
   private applyStarZoom(): void {
@@ -1086,7 +1160,7 @@ export class PreviewScene {
       glslVersion: THREE.GLSL3,
       vertexShader: POINTS_VERT,
       fragmentShader: POINTS_FRAG,
-      uniforms: { sizeScale: { value: this.starZoomFactor() } },
+      uniforms: { sizeScale: { value: 1 } },
     });
     applyBlend(material, layer.sourceBlendFactor, layer.destBlendFactor);
 
@@ -1243,15 +1317,16 @@ export class PreviewScene {
 
     // flare texture loads async; hold the quads back until it lands so we
     // don't flash untextured squares
+    let disposed = false;
     if (layer.texture && !applyNativeFlare(material, layer.texture)) {
       mesh.visible = false;
       void loadFlareTexture(layer.texture).then((tex) => {
         // stay hidden if the texture failed — a mapless material would render
         // the whole vertex-colored quad as a solid rectangle
-        if (tex) {
+        if (tex && !disposed) {
           material.map = tex;
           material.needsUpdate = true;
-          mesh.visible = true; this.flatDirty = true; this.capturesDirty = this.layerObjects.some(o => o.prepare);
+          mesh.visible = true; this.flatDirty = true; this.capturesFrom = 0; this.capturesDirty = this.layerObjects.some(o => o.prepare);
         }
       });
     }
@@ -1259,6 +1334,7 @@ export class PreviewScene {
     return {
       mesh,
       dispose: () => {
+        disposed = true;
         geometry.dispose();
         material.dispose();
       },
@@ -1576,9 +1652,65 @@ export class PreviewScene {
   }
 
   setViewMode(flat: boolean): void {
+    this.setProjectionMode(flat ? '2d' : '3d');
+  }
+
+  setProjectionMode(mode: PreviewProjection): void {
+    if (!['placement', '3d', '2d'].includes(mode)) return;
+    const flat = mode === '2d';
     this.endDrag(false); this.flatView = flat; this.controls.enabled = !flat; this.flatDirty = true;
+    this.projection = mode;
+    if (!flat) this.setFov(mode === 'placement' ? this.placementFov : this.wideFov);
     if (!flat) this.releaseFlatView();
     if (this.layerObjects.some(o => o.prepare)) this.runPrepares();
+  }
+
+  /** Display transforms run AFTER linear HDR compositing; exports stay linear. */
+  setHdrDisplay(enabled: boolean, exposure = 0, mapping: 'reinhard' | 'linear' = 'reinhard'): void {
+    this.displayExposure.value = 2 ** Math.max(-32, Math.min(32, Number.isFinite(exposure) ? exposure : 0));
+    this.displayMapping.value = enabled ? (mapping === 'reinhard' ? 1 : 2) : 0;
+    if (enabled && !this.hdrDisplay) {
+      const material = new THREE.ShaderMaterial({
+        glslVersion: THREE.GLSL3, vertexShader: EQUIRECT_VERT,
+        fragmentShader: `precision highp float;
+          uniform sampler2D image; uniform float gain; uniform int mapping;
+          in vec2 vUv; out vec4 fragColor;
+          void main() {
+            vec3 color = clamp(texture(image, vUv).rgb, vec3(0.0), vec3(65504.0)) * gain;
+            color = mapping == 1 ? color / (1.0 + color) : min(color, vec3(1.0));
+            fragColor = vec4(pow(color, vec3(1.0 / 2.2)), 1.0);
+          }`,
+        uniforms: { image: { value: null }, gain: this.displayExposure, mapping: this.displayMapping },
+        depthTest: false, depthWrite: false,
+      });
+      const scene = new THREE.Scene(), mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+      mesh.frustumCulled = false; scene.add(mesh);
+      this.hdrDisplay = { scene, mesh, material, camera: new THREE.Camera(), dirty: true };
+      this.flatDirty = true;
+    } else if (!enabled && this.hdrDisplay) {
+      this.hdrDisplay.target?.dispose(); this.hdrDisplay.mesh.geometry.dispose(); this.hdrDisplay.material.dispose();
+      this.hdrDisplay = undefined; this.flatDirty = true;
+    }
+    if (this.hdrDisplay) this.hdrDisplay.dirty = true;
+  }
+
+  private renderPerspective(): void {
+    const display = this.hdrDisplay;
+    if (!display) { this.renderer.render(this.scene, this.camera); return; }
+    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    if (!display.target) display.target = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, depthBuffer: false });
+    else if (display.target.width !== size.x || display.target.height !== size.y) display.target.setSize(size.x, size.y);
+    display.material.uniforms.image.value = display.target.texture;
+    this.renderer.setRenderTarget(display.target);
+    try { this.renderer.render(this.scene, this.camera); }
+    finally { this.renderer.setRenderTarget(null); }
+    this.presentHdr();
+  }
+
+  private presentHdr(): void {
+    const display = this.hdrDisplay;
+    if (!display?.target) return;
+    this.renderer.render(display.scene, display.camera); display.dirty = false;
   }
   private flatLonLat(clientX: number, clientY: number) {
     const rect = this.renderer.domElement.getBoundingClientRect();
@@ -1593,11 +1725,19 @@ export class PreviewScene {
     this.flatResources = undefined;
   }
   private renderFlatView() {
-    if (!this.flatDirty) return;
+    if (!this.flatDirty && !this.hdrDisplay?.dirty) return;
     if (!this.flatResources) {
       const target = new THREE.WebGLCubeRenderTarget(PREVIEW_QUALITY[this.previewQuality].panorama, { type: THREE.HalfFloatType, depthBuffer: false, generateMipmaps: false });
       const cube = new THREE.CubeCamera(0.1, SKY_RADIUS * 4, target);
-      const material = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: EQUIRECT_VERT, fragmentShader: EQUIRECT_FRAG, depthTest: false, depthWrite: false, uniforms: { cubeMap: { value: target.texture } } });
+      const fragmentShader = 'uniform float gain; uniform int mapping;\n' + EQUIRECT_FRAG.replace('fragColor = vec4(texture(cubeMap, dir).rgb, 1.0);', `
+        vec3 color = texture(cubeMap, dir).rgb;
+        if (mapping != 0) {
+          color = clamp(color, vec3(0.0), vec3(65504.0)) * gain;
+          color = mapping == 1 ? color / (1.0 + color) : min(color, vec3(1.0));
+          color = pow(color, vec3(1.0 / 2.2));
+        }
+        fragColor = vec4(color, 1.0);`);
+      const material = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: EQUIRECT_VERT, fragmentShader, depthTest: false, depthWrite: false, uniforms: { cubeMap: { value: target.texture }, gain: this.displayExposure, mapping: this.displayMapping } });
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material), scene = new THREE.Scene(); scene.add(mesh);
       this.flatResources = { target, cube, mesh, scene, camera: new THREE.Camera() };
     }
@@ -1608,12 +1748,13 @@ export class PreviewScene {
       const uniform = o.material.uniforms.sizeScale;
       if (uniform) { sizes.push({ uniform, value: uniform.value }); uniform.value = 0.5 * r.target.width / 512; }
     });
-    try { r.cube.update(this.renderer, this.scene); } finally { for (const s of sizes) s.uniform.value = s.value; }
+    try { if (this.flatDirty) r.cube.update(this.renderer, this.scene); } finally { for (const s of sizes) s.uniform.value = s.value; }
     const size = this.renderer.getSize(new THREE.Vector2()), width = Math.min(size.x, size.y * 2), height = width / 2;
     this.renderer.setRenderTarget(null); this.renderer.setViewport(0, 0, size.x, size.y); this.renderer.clear();
     this.renderer.setViewport((size.x - width) / 2, (size.y - height) / 2, width, height);
     this.renderer.render(r.scene, r.camera); this.renderer.setViewport(0, 0, size.x, size.y);
     this.flatDirty = false;
+    if (this.hdrDisplay) this.hdrDisplay.dirty = false;
   }
 
   resize(width: number, height: number, recapture = true): void {
@@ -1624,7 +1765,9 @@ export class PreviewScene {
     this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(Math.max(1, width), Math.max(1, height), false);
     this.camera.aspect = this.viewportWidth / this.viewportHeight;
+    this.camera.fov = previewVerticalFov(this.viewFov, this.camera.aspect, this.projection === 'placement');
     this.camera.updateProjectionMatrix();
+    this.controls.rotateSpeed = -0.35 * (this.camera.fov / 80);
     this.applyStarZoom();
     // lens captures scale point stars by viewport height — refresh them
     if (recapture && this.layerObjects.some((o) => o.prepare)) this.runPrepares();
@@ -1646,6 +1789,7 @@ export class PreviewScene {
     this.setLayers([]);
     this.controls.dispose();
     this.releaseFlatView();
+    this.setHdrDisplay(false);
     this.maskCache.clear();
     this.renderer.dispose();
   }
