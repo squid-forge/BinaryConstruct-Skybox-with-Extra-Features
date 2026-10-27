@@ -5,9 +5,9 @@
 import { useId, type ReactNode } from 'react';
 import type { Rgba } from '../core/layers';
 
-export function Group({ title, children }: { title: string; children: ReactNode }) {
+export function Group({ title, children, defaultOpen = true }: { title: string; children: ReactNode; defaultOpen?: boolean }) {
   return (
-    <details className="group" open>
+    <details className="group" open={defaultOpen}>
       <summary>{title}</summary>
       <div className="group-body">{children}</div>
     </details>

@@ -349,11 +349,13 @@ export const SKY_FRAG = /* glsl */ `
 precision highp float;
 
 uniform samplerCube cubeMap;
+uniform float emissionGain;
 in vec3 vDir;
 out vec4 fragColor;
 
 void main() {
   fragColor = texture(cubeMap, normalize(vDir));
+  fragColor.rgb *= emissionGain;
 }
 `;
 

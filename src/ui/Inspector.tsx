@@ -63,15 +63,30 @@ interface InspectorProps {
   onSelectNebula?: (index: number) => void;
   onStackNebula?: () => void;
   onStackRadial?: () => void;
+  layerOptions?: { index: number; name: string }[];
+  onSelectLayer?: (index: number) => void;
 }
 
-export function Inspector({ layer, userSprites = [], onChange, onAddBand, onStackBand, onAddCoreNebula, nebulaStack, selectedIndex, onSelectNebula, onStackNebula, onStackRadial }: InspectorProps) {
+export function Inspector({ layer, userSprites = [], onChange, onAddBand, onStackBand, onAddCoreNebula, nebulaStack, selectedIndex, onSelectNebula, onStackNebula, onStackRadial, layerOptions, onSelectLayer }: InspectorProps) {
   // typed helper: patch a field on the current layer
   const set = <L extends Layer>(patch: Partial<L>) => onChange({ ...layer, ...patch } as Layer);
 
   return (
     <div className="inspector">
-      <div className="inspector-head">Properties</div>
+      <div className="inspector-head">
+        <span>Properties <small>{layer.type}</small></span>
+        {layerOptions && onSelectLayer ? <SelectField label="Selected item" value={String(selectedIndex)} options={layerOptions.map(item => ({ value: String(item.index), label: item.name }))} onChange={value => onSelectLayer(Number(value))} /> : <strong title={layer.name}>{layer.name}</strong>}
+      </div>
+      <Group title="HDR emission">
+        <SliderField label="Brightness" value={layer.hdrMultiplier ?? 1} min={0} max={10} step={0.05} onChange={v => set({ hdrMultiplier: v === 1 ? undefined : Math.max(0, v) })} />
+        <p className="hint">Scales emission without changing geometry or opacity.</p>
+        <details className="emission-contrast">
+          <summary>Advanced contrast</summary>
+          <SliderField label="Emission power" value={layer.hdrPower ?? 1} min={0.1} max={5} onChange={v => set({ hdrPower: v === 1 ? undefined : Math.max(0.1, v) })} />
+          <p className="hint">Legacy power reshapes intensity and may change density, silhouettes or faint detail. Use brightness for HDR balance.</p>
+          <button type="button" onClick={() => set({ hdrPower: undefined })}>Reset power to 1</button>
+        </details>
+      </Group>
       {layer.type === 'noise' && <Group title="Independent nebula stack">
         <SelectField label="Nebula stack" value={String(selectedIndex)} options={(nebulaStack ?? []).map(n => ({ value: String(n.index), label: n.name }))} onChange={v => onSelectNebula?.(Number(v))} />
         <p className="hint">Editing only {layer.name}. This nebula has its own seed, mask, noise, palette, lighting and HDR settings.</p>
@@ -98,24 +113,6 @@ export function Inspector({ layer, userSprites = [], onChange, onAddBand, onStac
       {(layer.type === 'points' || layer.type === 'billboards') && (
         <MaskControls layer={layer} set={set} />
       )}
-
-      <Group title="HDR">
-        <SliderField
-          label="Power"
-          value={layer.hdrPower ?? 1}
-          min={0.1}
-          max={5}
-          onChange={(v) => set({ hdrPower: v === 1 ? undefined : v })}
-        />
-        <SliderField
-          label="Multiplier"
-          value={layer.hdrMultiplier ?? 1}
-          min={0}
-          max={10}
-          step={0.05}
-          onChange={(v) => set({ hdrMultiplier: v === 1 ? undefined : v })}
-        />
-      </Group>
 
       <Group title="Blending">
         <SelectField

@@ -22,6 +22,8 @@ I tested and used 16K HDR export in Unreal Engine. The other additions remain la
 
 The placement view reduces edge stretching and dragging no longer snaps items to the pointer. Wide views still stretch near the edges. Preview detail can differ from export, and complex nebulae or large lens captures can be slow or exceed GPU memory.
 
+HDR view works throughout editing. Display exposure does not change exports; each item’s HDR emission box controls brightness. Advanced power controls can change visible structure.
+
 ## Run locally
 
 Requires Node.js 24.
