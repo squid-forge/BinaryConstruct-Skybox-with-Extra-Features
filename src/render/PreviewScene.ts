@@ -18,6 +18,8 @@ import { generatePoints, generatePointsMasked, generateStarSizes } from '../core
 import { MsvcRng } from '../core/rng';
 import { applyBlend } from './blend';
 import { attachLayerHdr } from './layerHdr';
+import { lensCaptureSettings } from './lensCapture';
+import { assertExportTextureSize } from '../export/sourceDetail';
 import { PLACEMENT_ZOOM_LEVELS, WIDE_ZOOM_LEVELS, previewVerticalFov, type PreviewProjection } from './previewProjection';
 import { loadFlareTexture } from './flareTextures';
 import { nativeBodyMaterial } from './nativeBodyMaterial';
@@ -1407,23 +1409,23 @@ export class PreviewScene {
     }
   }
 
+  private async prepareExportTextures(layers: Layer[]): Promise<void> {
+    const names = new Set(layers.flatMap(layer => layer.type === 'sprite' ? [layer.texture]
+      : layer.type === 'billboards' ? [layer.texture, ...(layer.textureMix ?? [])] : []).filter(Boolean));
+    await Promise.all([...names].map(async name => {
+      const texture = await loadFlareTexture(name);
+      assertExportTextureSize(texture, name, this.renderer.capabilities.maxTextureSize);
+    }));
+  }
+
   /** Native-resolution exports with a fixed-size GPU target and no large cubemaps. */
   async createTileSource(layers: Layer[], size: number, options: { lensResolution?: number | 'native' } = {}): Promise<TileSource> {
     if (![512, 1024, 2048, 4096, 8192, 16384].includes(size)) throw new Error('Unsupported export resolution');
-    await Promise.all(layers
-      .filter((layer): layer is Extract<Layer, { type: 'billboards' }> => layer.type === 'billboards')
-      .flatMap((layer) => [layer.texture, ...(layer.textureMix ?? [])])
-      .filter(Boolean).map((texture) => loadFlareTexture(texture)));
+    await this.prepareExportTextures(layers);
     const tileSize = 256;
     const objs: LayerObject[] = [];
     const lensCount = layers.filter(l => l.type === 'blackhole' && l.coreVisible !== false).length;
-    // At most 64 MiB total lens cubemaps, rather than 192 MiB per 2K capture.
-    const captureBudgetSize = Math.sqrt(64 * 1024 * 1024 / (6 * 8 * Math.max(1, lensCount)));
-    const requestedCapture = options.lensResolution === 'native' ? size : options.lensResolution;
-    if (requestedCapture !== undefined && (!Number.isInteger(requestedCapture) || requestedCapture < 16 || (requestedCapture & (requestedCapture - 1)) !== 0)) throw new Error('Lens capture resolution must be a power of two');
-    const captureSize = requestedCapture === undefined
-      ? Math.max(16, Math.min(size, 1024, 2 ** Math.floor(Math.log2(captureBudgetSize))))
-      : Math.min(size, requestedCapture);
+    const { faceSize: captureSize } = lensCaptureSettings(size, lensCount, options.lensResolution);
     const cubeLimit = this.renderer.getContext().getParameter(this.renderer.getContext().MAX_CUBE_MAP_TEXTURE_SIZE) as number;
     if (lensCount > 0 && captureSize > cubeLimit) throw new Error(`Lens capture ${captureSize}px exceeds this GPU's ${cubeLimit}px cube texture limit. Choose a smaller lens background detail setting.`);
     let target: THREE.WebGLRenderTarget | undefined;
@@ -1558,13 +1560,7 @@ export class PreviewScene {
       throw new Error(`The ${size * 2} × ${size} panorama exceeds this GPU's texture/viewport limits. Choose a lower resolution or export cube faces only.`);
     }
     // ensure flare textures are resolved so billboard meshes are visible
-    await Promise.all(
-      layers
-        .filter((l): l is Extract<Layer, { type: 'billboards' }> => l.type === 'billboards')
-        .flatMap((l) => [l.texture, ...(l.textureMix ?? [])])
-        .filter(Boolean)
-        .map((t) => loadFlareTexture(t)),
-    );
+    await this.prepareExportTextures(layers);
 
     const exportLayers = layers.map((l) => {
       if (l.type === 'noise') return { ...l, previewTextureSize: size };

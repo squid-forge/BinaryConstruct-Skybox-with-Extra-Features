@@ -5,7 +5,7 @@ import { DiskExportJob, DiskZip } from './diskExport';
 import { FACE_NAMES } from './exporter';
 import { compositeEntry, compositeJson, layerFileStem, starDataCsv, starDataJson, type ImageRefs } from './perLayer';
 import { streamExr, streamHdr, streamPng, type ByteSink, type EncodeOptions, type RowReader } from './streamEncoders';
-import { softenPanorama } from './softness';
+import { DEFAULT_HDR_SOFTNESS, softenPanorama } from './softness';
 import { TileSampler, panoramaRows } from './tiles';
 
 export interface LowMemoryOptions {
@@ -55,7 +55,7 @@ export async function runLowMemoryExport(scene: PreviewScene, layers: Layer[], o
         refs.image = `${stem}equirect.png`;
         await emit(refs.image, (sink) => streamPng(size * 2, size, read, sink, encodeOptions(refs.image!)));
       }
-      const softRead = () => softenPanorama(read, size * 2, size, options.hdrSoftness ?? 0);
+      const softRead = () => softenPanorama(read, size * 2, size, options.hdrSoftness ?? DEFAULT_HDR_SOFTNESS);
       if (options.hdr) {
         refs.imageHdr = `${stem}equirect.hdr`;
         await emit(refs.imageHdr, (sink) => streamHdr(size * 2, size, softRead(), sink, encodeOptions(refs.imageHdr!)));

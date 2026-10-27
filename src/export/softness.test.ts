@@ -1,11 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { softenPanorama } from './softness';
+import { DEFAULT_HDR_SOFTNESS, softenPanorama, softnessRadius } from './softness';
 import type { RowReader } from './streamEncoders';
 
 describe('linear HDR panorama softness', () => {
   it('leaves native data untouched at zero', () => {
     const read: RowReader = () => {};
     expect(softenPanorama(read, 8, 4, 0)).toBe(read);
+  });
+  it('defaults to no blur at every supported export size', () => {
+    const read: RowReader = () => {};
+    expect(DEFAULT_HDR_SOFTNESS).toBe(0);
+    for (const height of [512, 1024, 2048, 4096, 8192, 16384]) {
+      expect(softnessRadius(height, DEFAULT_HDR_SOFTNESS)).toBe(0);
+      expect(softenPanorama(read, height * 2, height, DEFAULT_HDR_SOFTNESS)).toBe(read);
+    }
+    expect(softnessRadius(16384, 1) * 2 + 1).toBe(39);
   });
   it('preserves HDR constants and alpha through sequential and random reads', () => {
     const read: RowReader = (_, out) => out.fill(32);

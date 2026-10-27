@@ -1,5 +1,8 @@
 import type { RowReader } from './streamEncoders';
 
+/** Preserve native detail unless the user explicitly requests smoothing. */
+export const DEFAULT_HDR_SOFTNESS = 0;
+
 /** Separable tent filter in linear radiance, with periodic longitude.
  * Amount is angular softness in pixels at 2048px panorama height.
  * Sliding sums keep work O(width * height), even at 16K. Only nearby rows

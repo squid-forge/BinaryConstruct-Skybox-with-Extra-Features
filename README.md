@@ -24,6 +24,8 @@ The placement view reduces edge stretching and dragging no longer snaps items to
 
 HDR view works throughout editing. Display exposure does not change exports; each item’s HDR emission box controls brightness. Advanced power controls can change visible structure.
 
+HDR/EXR exports default to no added blur. Smoothing and low lens-background detail can soften results; inspect native pixels before export. Larger images cannot recover missing source detail, and oversized source textures are rejected instead of silently reduced.
+
 ## Run locally
 
 Requires Node.js 24.

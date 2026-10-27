@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { unzlibSync } from 'fflate';
 import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
+import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { FloatType } from 'three';
 import { streamExr, streamHdr, streamPng, type ByteSink, type EncodeOptions, type RowReader } from './streamEncoders';
 import { encodeRadianceHdr } from './hdr';
+import { DEFAULT_HDR_SOFTNESS, softenPanorama } from './softness';
 
 const options = (): EncodeOptions => ({ signal: new AbortController().signal, progress: () => {} });
 const read: RowReader = (y, rgba) => {
@@ -59,6 +61,38 @@ describe('streaming encoders', () => {
     // EXRLoader returns bottom-up pixels, while file scanlines are top-down.
     expect([...exr.data!.slice(0, 8)]).toEqual([0, 0.5, 0.25, 1, 1, 0.5, 0.25, 1]);
     expect([...exr.data!.slice(12, 16)]).toEqual([0, 0, 0.25, 1]);
+  });
+
+  it('preserves single-pixel lines and alternating detail in 32K-wide HDR and EXR', async () => {
+    // Full export width, a bounded strip: exercise the real encoding boundary
+    // without allocating a multi-gigabyte panorama in a unit test.
+    const width = 32768, height = 8;
+    const pattern: RowReader = (y, out) => {
+      for (let x = 0; x < width; x++) out.set([x % 2 ? 16 : 0.5, y === 3 ? 32 : 0, x === 16384 ? 64 : 0, 1], x * 4);
+    };
+    const native = softenPanorama(pattern, width, height, DEFAULT_HDR_SOFTNESS, 16384);
+    const hdrBytes = await collect(sink => streamHdr(width, height, native, sink, options()));
+    const hdr = new HDRLoader().setDataType(FloatType).parse(hdrBytes.buffer as ArrayBuffer);
+    const exrBytes = await collect(sink => streamExr(width, height, native, sink, options()));
+    const exr = new EXRLoader().setDataType(FloatType).parse(exrBytes.buffer as ArrayBuffer);
+    expect([hdr.width, hdr.height, exr.width, exr.height]).toEqual([width, height, width, height]);
+    const row = new Float32Array(width * 4);
+    let hdrRelativeError = 0, leakedPixels = 0, exrMismatches = 0;
+    for (let y = 0; y < height; y++) {
+      pattern(y, row);
+      // HDRLoader's data is top-down; EXRLoader exposes bottom-up pixels.
+      for (let i = 0; i < row.length; i++) {
+        const decoded = hdr.data![y * width * 4 + i];
+        if (row[i] === 0) { if (decoded !== 0) leakedPixels++; }
+        else hdrRelativeError = Math.max(hdrRelativeError, Math.abs(decoded - row[i]) / row[i]);
+        if (exr.data![(height - 1 - y) * width * 4 + i] !== row[i]) exrMismatches++;
+      }
+    }
+    // RGBE decoding uses a /255 normalization in HDRLoader. Allow that
+    // sub-percent radiometric difference, but no spatial spread or EXR loss.
+    expect(hdrRelativeError).toBeLessThan(0.005);
+    expect(leakedPixels).toBe(0);
+    expect(exrMismatches).toBe(0);
   });
 
   it('stops before reading pixels when cancelled', async () => {

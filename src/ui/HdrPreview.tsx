@@ -3,6 +3,7 @@ import type { Layer } from '../core/layers';
 import type { PreviewScene } from '../render/PreviewScene';
 import { captureHdrPreview, compareHdrPreview, hdrPreviewBytes, type HdrPreviewData } from '../export/hdrPreview';
 import { SelectField, SliderField } from './controls';
+import { softnessRadius } from '../export/softness';
 
 export function HdrPreview({ scene, layers, size, softness, onSoftness, center, picking, onPick, onClose, lensResolution }: {
   scene: PreviewScene; layers: Layer[]; size: number; softness: number;
@@ -67,7 +68,7 @@ export function HdrPreview({ scene, layers, size, softness, onSoftness, center, 
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
     }}>
       <div className="hdr-preview-heading">
-        <h2 id="hdr-preview-title">HDR smoothness preview</h2>
+        <h2 id="hdr-preview-title">Native export detail</h2>
         <button type="button" onClick={onClose}>{activeStatus ? 'Cancel preview' : 'Close preview'}</button>
       </div>
       <p className="hint">Native pixels from the selected {size * 2} x {size} panorama, at longitude {center.lonDeg.toFixed(1)}, latitude {center.latDeg.toFixed(1)}.</p>
@@ -79,6 +80,7 @@ export function HdrPreview({ scene, layers, size, softness, onSoftness, center, 
       </div>
       <button type="button" onClick={onPick}>Pick another preview area</button>
       <p className="hint">Pick a bright star, jet or nebula to inspect. Softness applies to the export. Exposure, mapping and pixel zoom affect only this preview.</p>
+      <p className="hint">{softnessRadius(size, softness) === 0 ? 'No added export blur. Judge native detail at 1x pixel zoom.' : `Export smoothing spans ${softnessRadius(size, softness) * 2 + 1} × ${softnessRadius(size, softness) * 2 + 1} pixels at this resolution. Set softness to 0 for native detail.`}</p>
       {activeStatus && <p role="status">{activeStatus}</p>}
       {error && <p role="alert">{error}</p>}
       {images && data && <div className="hdr-preview-comparison">

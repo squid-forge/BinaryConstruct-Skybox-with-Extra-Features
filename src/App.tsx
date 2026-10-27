@@ -13,6 +13,8 @@ import { PreviewScene } from './render/PreviewScene';
 import { PREVIEW_QUALITY, type PreviewQuality } from './render/previewQuality';
 import type { PreviewProjection } from './render/previewProjection';
 import { chooseExportDirectory } from './export/diskExport';
+import { DEFAULT_HDR_SOFTNESS, softnessRadius } from './export/softness';
+import { lensCaptureSettings } from './render/lensCapture';
 import { HdrPreview } from './ui/HdrPreview';
 import { HdrDisplayControls } from './ui/HdrDisplayControls';
 import { DISPLAY_STORAGE_KEY, readDisplayPreferences, type DisplayPreferences } from './ui/displayPreferences';
@@ -85,7 +87,7 @@ export default function App() {
   const [exportEquirect, setExportEquirect] = useState(true);
   const [exportExr, setExportExr] = useState(false);
   const [exportHdr, setExportHdr] = useState(false);
-  const [hdrSoftness, setHdrSoftness] = useState(1);
+  const [hdrSoftness, setHdrSoftness] = useState(DEFAULT_HDR_SOFTNESS);
   const [hdrPreviewOpen, setHdrPreviewOpen] = useState(false);
   const [display, setDisplay] = useState(readDisplayPreferences);
   const updateDisplay = (patch: Partial<DisplayPreferences>) => setDisplay(previous => {
@@ -465,6 +467,9 @@ export default function App() {
   };
 
   const selectedLayer = layers[selected] as Layer | undefined;
+  const visibleLensCount = layers.filter(layer => layer.type === 'blackhole' && layer.visible !== false && layer.coreVisible !== false).length;
+  const lensCapture = lensCaptureSettings(exportSize, visibleLensCount, lensResolution);
+  const exportBlurRadius = softnessRadius(exportSize, hdrSoftness);
   const presetNames = useMemo(() => Object.keys(presets).sort(), []);
   const userSpriteIds = useMemo(
     () => listSpriteAssets().map((a) => a.id),
@@ -655,16 +660,16 @@ export default function App() {
             <p className="hint" style={{ margin: 0 }}>
               Panorama: {exportSize * 2} × {exportSize} pixels.
             </p>
-            {layers.some(l => l.type === 'blackhole' && l.visible !== false && l.coreVisible !== false) && <>
+            {visibleLensCount > 0 && <>
               <div className="field-row">
                 <label htmlFor="export-lens-detail">Lens background detail</label>
                 <select id="export-lens-detail" disabled={exporting} value={lensResolution ?? 'auto'} onChange={e => setLensResolution(e.target.value === 'auto' ? undefined : e.target.value === 'native' ? 'native' : Number(e.target.value))}>
-                  <option value="auto">Memory budget (up to 1K)</option>
+                  <option value="auto">Auto · {lensCaptureSettings(exportSize, visibleLensCount).faceSize}px faces</option>
                   {[512,1024,2048,4096,8192].map(s => <option key={s} value={s}>{s}px / capture face</option>)}
                   <option value="native">Match export resolution</option>
                 </select>
               </div>
-              <p className="hint">Controls only the background bent by black holes. Discs and jets are procedural. {lensResolution === undefined ? 'Memory budget keeps lens textures within approximately 64 MiB total.' : `Selected captures require approximately ${Math.round(6*8*Math.min(exportSize,lensResolution === 'native' ? exportSize : lensResolution)**2/1048576)} MiB per black hole, plus driver overhead. Large captures can exhaust GPU memory; HDR crops use the same setting.`}</p>
+              <p className="hint">Bent backgrounds use {lensCapture.faceSize}px cube faces{lensCapture.reduced ? `, below the ${exportSize}px export grid. Increase this for sharper lensed detail` : ', matching the export grid'}. Discs and jets render natively. Captures need approximately {Math.round(lensCapture.totalBytes / 1048576)} MiB total, plus driver overhead.</p>
             </>}
             <p className="hint">Nebulae, clouds, jets, suns and planets render procedural detail at output pixels. Imported images, smoke silhouettes and saved PCG sprites retain their source detail.</p>
             {(exportHdr || exportExr) && <div className="field-row">
@@ -672,7 +677,11 @@ export default function App() {
               <input id="export-hdr-softness" type="number" min="0" max="4" step="0.25" disabled={exporting}
                 value={hdrSoftness} onChange={(e) => setHdrSoftness(Math.max(0, Math.min(4, Number(e.target.value))))} />
             </div>}
-            {(exportHdr || exportExr) && <p className="hint">Linear-light smoothing for HDR/EXR panoramas. 1 gives a gentle angular blur that scales with resolution; 0 preserves native sharpness. PNGs remain crisp.</p>}
+            {(exportHdr || exportExr) && <div className={`export-sharpness ${exportBlurRadius > 0 ? 'smoothed' : 'native'}`} role="status">
+              <strong>{exportBlurRadius === 0 ? 'Native sharpness · no added blur' : `Smoothing enabled · ${exportBlurRadius * 2 + 1} × ${exportBlurRadius * 2 + 1}-pixel filter`}</strong>
+              <p>Softness 0 preserves native pixels. Higher values blur HDR/EXR before encoding and scale with resolution.</p>
+              {exportBlurRadius > 0 && <button type="button" disabled={exporting} onClick={() => setHdrSoftness(DEFAULT_HDR_SOFTNESS)}>Use native sharpness</button>}
+            </div>}
 
             <button type="button" disabled={exporting} onClick={() => {
               setHdrPreviewCenter(sceneRef.current?.viewCenter() ?? { lonDeg: 0, latDeg: 0 });
@@ -745,7 +754,7 @@ export default function App() {
             </p>
             </div>
             <div className="export-actions">
-            <p className="hint">{layers.filter(l => l.visible !== false).length} visible layers · {exportSize * 2} × {exportSize} panorama</p>
+            <p className="hint">{layers.filter(l => l.visible !== false).length} visible layers · {exportSize * 2} × {exportSize} panorama{(exportHdr || exportExr) ? exportBlurRadius === 0 ? ' · no added blur' : ` · blur radius ${exportBlurRadius}px` : ''}</p>
             {exporting && <p className="export-progress" role="status">{batchProgress || 'Preparing export…'}</p>}
             <button
               type="button"
