@@ -45,8 +45,6 @@ export function PlumeControls({ value, onChange, units = 'sprite' }: {
               <SliderField label="Plume contrast" value={params.jetContrast ?? 1} min={0.05} max={10} step={0.05} onChange={(jetContrast) => onChange({ jetContrast })} />
               <SliderField label="Plume dust" value={params.jetDust ?? 0} min={0} max={1} step={0.01} onChange={(jetDust) => onChange({ jetDust })} />
               <SliderField label="Plume absorption" value={params.jetAbsorption ?? 0} min={0} max={10} step={0.05} onChange={(jetAbsorption) => onChange({ jetAbsorption })} />
-              <SliderField label="Plume HDR power" value={params.jetHdrPower ?? 1} min={0.1} max={5} step={0.05} onChange={(jetHdrPower) => onChange({ jetHdrPower })} />
-              <SliderField label="Plume brightness" value={params.jetBrightness ?? 1} min={0} max={20} step={0.05} onChange={(jetBrightness) => onChange({ jetBrightness })} />
               <ColorField label="Plume color" value={params.jetColor ?? { r: 0.6, g: 0.75, b: 1, a: 1 }} onChange={(jetColor) => onChange({ jetColor })} />
               <ColorField label="Plume outer color" value={params.jetOuterColor ?? { r: 0.18, g: 0.15, b: 0.45, a: 1 }} onChange={(jetOuterColor) => onChange({ jetOuterColor })} />
               <CheckField label="Plume color bands" value={!!params.jetColorRamp} onChange={(on) => onChange({ jetColorRamp: on ? [{ t: 0, color: params.jetOuterColor ?? { r: 0.18, g: 0.15, b: 0.45, a: 1 } }, { t: 1, color: params.jetColor ?? { r: 0.6, g: 0.75, b: 1, a: 1 } }] : undefined })} />
@@ -54,6 +52,14 @@ export function PlumeControls({ value, onChange, units = 'sprite' }: {
                 <CheckField label="Color bands along length" value={params.jetRampAlongLength ?? false} onChange={(jetRampAlongLength) => onChange({ jetRampAlongLength })} />
                 <RampEditor stops={params.jetColorRamp} onChange={(jetColorRamp) => onChange({ jetColorRamp })} />
               </>}
+            </Group>
+            <Group title="Plume HDR emission">
+              <SliderField label="Plume brightness" value={params.jetBrightness ?? 1} min={0} max={20} step={0.05} onChange={(jetBrightness) => onChange({ jetBrightness: Math.max(0, jetBrightness) })} />
+              <details className="emission-contrast">
+                <summary>Advanced density contrast</summary>
+                <SliderField label="Plume density power" value={params.jetHdrPower ?? 1} min={0.1} max={5} step={0.05} onChange={(jetHdrPower) => onChange({ jetHdrPower: Math.max(0.1, jetHdrPower) })} />
+                <p className="hint">Changes plume density and visible structure. Use brightness to balance HDR without reshaping the jets.</p>
+              </details>
             </Group>
   </>;
 }

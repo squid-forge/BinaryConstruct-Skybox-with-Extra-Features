@@ -42,8 +42,10 @@ export function LayerList({
   return (
     <div className="layer-panel">
       <div className="layer-panel-head">
-        <h2>Layers</h2>
+        <h2>Scene layers</h2><span>{layers.length} items</span>
       </div>
+      <details className="add-layer-picker">
+      <summary>Add item <span>+</span></summary>
       <div className="add-layer-grid">
         <button type="button" title="Add movable nebula cloud" onClick={onAddCloud}>+cloud</button>
         <button type="button" title="Add nebula layer" onClick={() => onAdd('noise')}>+nebula</button>
@@ -56,10 +58,16 @@ export function LayerList({
         <button type="button" title="Add black hole (lenses the layers below it)" onClick={() => onAdd('blackhole')}>+b.hole</button>
         <button type="button" title="Add sprite quad (PCG bakes / uploads) — drag it in the viewport to place" onClick={() => onAdd('sprite')}>+sprite</button>
       </div>
+      </details>
 
       <ol className="layer-list">
         {layers.map((layer, i) => (
           <li
+            tabIndex={0}
+            aria-current={i === selected ? 'true' : undefined}
+            onKeyDown={event => {
+              if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onSelect(i); }
+            }}
             draggable
             onDragStart={e => { e.dataTransfer.setData('application/x-skybox-layer', String(i)); e.dataTransfer.effectAllowed = 'move'; }}
             onDragOver={e => { if (e.dataTransfer.types.includes('application/x-skybox-layer')) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; setDropTarget(i); } }}

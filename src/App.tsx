@@ -1,7 +1,7 @@
 import { SliderField } from './ui/controls';
 import { SceneHistory } from './core/history';
 import { defaultNebulaCloud } from './core/nebulaCloud';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import { addSpriteAsset, clearSpriteAssets, listSpriteAssets, type SpriteAsset } from './assets/spriteStore';
 import { resolveTextureReference } from './assets/textureReferences';
@@ -14,12 +14,14 @@ import { PREVIEW_QUALITY, type PreviewQuality } from './render/previewQuality';
 import type { PreviewProjection } from './render/previewProjection';
 import { chooseExportDirectory } from './export/diskExport';
 import { HdrPreview } from './ui/HdrPreview';
-import { HdrTuning } from './ui/HdrTuning';
+import { HdrDisplayControls } from './ui/HdrDisplayControls';
+import { DISPLAY_STORAGE_KEY, readDisplayPreferences, type DisplayPreferences } from './ui/displayPreferences';
 import { Inspector } from './ui/Inspector';
 import { LayerList } from './ui/LayerList';
-import { ScriptTab } from './ui/ScriptTab';
-import { SpritesTab } from './ui/SpritesTab';
-import { StarsTab } from './ui/StarsTab';
+
+const ScriptTab = lazy(() => import('./ui/ScriptTab').then(module => ({ default: module.ScriptTab })));
+const SpritesTab = lazy(() => import('./ui/SpritesTab').then(module => ({ default: module.SpritesTab })));
+const StarsTab = lazy(() => import('./ui/StarsTab').then(module => ({ default: module.StarsTab })));
 
 // bundled presets: legacy .xml plus native v2 .json (new layer types)
 const presetFiles = import.meta.glob('../presets/*.{xml,json}', {
@@ -85,9 +87,12 @@ export default function App() {
   const [exportHdr, setExportHdr] = useState(false);
   const [hdrSoftness, setHdrSoftness] = useState(1);
   const [hdrPreviewOpen, setHdrPreviewOpen] = useState(false);
-  const [hdrTuning, setHdrTuning] = useState(false);
-  const [hdrExposure, setHdrExposure] = useState(0);
-  const [hdrMapping, setHdrMapping] = useState<'reinhard' | 'linear'>('reinhard');
+  const [display, setDisplay] = useState(readDisplayPreferences);
+  const updateDisplay = (patch: Partial<DisplayPreferences>) => setDisplay(previous => {
+    const next = { ...previous, ...patch };
+    next.exposure = Number.isFinite(next.exposure) ? Math.max(-12, Math.min(12, next.exposure)) : previous.exposure;
+    return next.hdr === previous.hdr && next.exposure === previous.exposure && next.mapping === previous.mapping ? previous : next;
+  });
   const [hdrPicking, setHdrPicking] = useState(false);
   const [hdrPreviewCenter, setHdrPreviewCenter] = useState({ lonDeg: 0, latDeg: 0 });
   const [exportBatch, setExportBatch] = useState(1);
@@ -101,7 +106,6 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<PreviewScene | null>(null);
-  useEffect(() => { sceneRef.current?.setHdrDisplay(hdrTuning, hdrExposure, hdrMapping); }, [hdrTuning, hdrExposure, hdrMapping]);
   const dirtyRef = useRef<Map<number, Layer>>(new Map());
   const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -216,6 +220,14 @@ export default function App() {
       sceneRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    sceneRef.current?.setHdrDisplay(display.hdr, display.exposure, display.mapping);
+    const timer = setTimeout(() => {
+      try { localStorage.setItem(DISPLAY_STORAGE_KEY, JSON.stringify(display)); } catch { /* Display preferences are optional. */ }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [display]);
 
   useEffect(() => {
     sceneRef.current?.setPreviewQuality(previewQuality);
@@ -585,7 +597,16 @@ export default function App() {
             JSON/XML templates contain names, while project ZIPs include uploaded images.
           </p>
         )}
-        <div className="view-controls">
+        <section className="view-controls" aria-label="Viewport controls">
+          <div className="view-mode-row">
+          <select aria-label="Viewport projection" value={projection} onChange={e => { const mode = e.target.value as PreviewProjection; setProjection(mode); sceneRef.current?.setProjectionMode(mode); }}>
+            <option value="placement">3D placement</option><option value="3d">3D wide view</option><option value="2d">2D panorama</option>
+          </select>
+          <button type="button" className="hdr-view-toggle" disabled={exporting || hdrPreviewOpen} aria-pressed={display.hdr} onClick={() => updateDisplay({ hdr: !display.hdr })}>HDR view <span>{display.hdr ? 'On' : 'Off'}</span></button>
+          </div>
+          <details className="viewport-settings">
+          <summary>View &amp; quality <span>{previewQuality} · {flatView ? '360°' : `${viewFov}°`}</span></summary>
+          <div className="viewport-settings-body">
           <div className="preview-quality-control">
             <label htmlFor="preview-quality">Preview quality</label>
             <select id="preview-quality" disabled={exporting || hdrPreviewOpen} value={previewQuality} onChange={e => setPreviewQuality(e.target.value as PreviewQuality)}>
@@ -594,16 +615,14 @@ export default function App() {
               <option value="high">High (100%)</option>
             </select>
           </div>
-          <p className="hint preview-quality-hint">Preview only. Exports and HDR crops keep their selected quality.</p>
-          <select aria-label="Viewport projection" value={projection} onChange={e => { const mode = e.target.value as PreviewProjection; setProjection(mode); sceneRef.current?.setProjectionMode(mode); }}>
-            <option value="placement">3D placement (low distortion)</option><option value="3d">3D wide view</option><option value="2d">2D panorama view</option>
-          </select>
-          <button type="button" disabled={exporting || hdrPreviewOpen} aria-pressed={hdrTuning} onClick={() => { setHdrTuning(v => !v); setTab('layers'); }}>Tune HDR</button>
           {!flatView && <SliderField label="Field of view" value={viewFov} min={15} max={projection === 'placement' ? 70 : 120} step={1} onChange={fov => sceneRef.current?.setFov(fov)} />}
-          {projection === 'placement' && <p className="hint preview-quality-hint">Narrower view for accurate placement. FOV follows the longest viewport edge. Right-drag to look around; scroll to zoom.</p>}
+          {projection === 'placement' && <p className="hint preview-quality-hint">Low-distortion placement. Right-drag to look around; scroll to zoom.</p>}
           {flatView && <p className="hint">Full 360 x 180 panorama. Drag clouds here; switch to 3D to adjust FOV.</p>}
-        </div>
-        <nav className="tabs" hidden={hdrTuning}>
+          </div>
+          </details>
+          <HdrDisplayControls value={display} onChange={updateDisplay} />
+        </section>
+        <nav className="tabs" aria-label="Editor panels">
           {(['layers', 'stars', 'sprites', 'script'] as const).map((t) => (
             <button
               key={t}
@@ -624,7 +643,7 @@ export default function App() {
               <button type="button" ref={exportBackRef} disabled={exporting} onClick={() => { setExportOpen(false); exportButtonRef.current?.focus(); }}>Back to editor</button>
             </div>
             <div className="export-options">
-            <button type="button" disabled={exporting} onClick={() => { setExportOpen(false); setTab('layers'); setHdrTuning(true); }}>Tune item HDR in live preview</button>
+            <button type="button" disabled={exporting} onClick={() => { setExportOpen(false); setTab('layers'); updateDisplay({ hdr: true }); }}>Edit scene in HDR view</button>
             <div className="field-row">
               <label htmlFor="export-resolution">Resolution</label>
               <select id="export-resolution" disabled={exporting} value={exportSize} onChange={(e) => setExportSize(Number(e.target.value))}>
@@ -747,9 +766,8 @@ export default function App() {
           </section>
         )}
 
-        {hdrTuning && <HdrTuning layers={layers} selected={selected} onSelect={setSelected} onChange={updateLayer}
-          exposure={hdrExposure} onExposure={setHdrExposure} mapping={hdrMapping} onMapping={setHdrMapping} onClose={() => setHdrTuning(false)} />}
-        {!hdrTuning && tab === 'layers' && (
+        <Suspense fallback={<div className="asset-tab panel-loading" role="status">Loading editor tools…</div>}>
+        {tab === 'layers' && (
           <div className="asset-tab layers-tab">
             <label className="field">
               Preset
@@ -790,6 +808,8 @@ export default function App() {
               <Inspector
                 key={`${presetName}-${selected}-${selectedLayer.type}`}
                 layer={selectedLayer}
+                layerOptions={layers.map((layer, index) => ({ index, name: layer.name }))}
+                onSelectLayer={setSelected}
                 onAddCoreNebula={selectedLayer.type === 'noise' && selectedLayer.bandEnabled ? () => {
                   let seed = (selectedLayer.seed + 0x31c47) >>> 0;
                   while (layers.some(l => l.type === 'noise' && l.seed === seed)) seed = (seed + 0x31c47) >>> 0;
@@ -845,7 +865,7 @@ export default function App() {
           </div>
         )}
 
-        {!hdrTuning && tab === 'stars' && (
+        {tab === 'stars' && (
           <StarsTab
             onSpritesChanged={refreshUserTextureLayers}
             onViewportPreview={(canvas, occludes) => sceneRef.current?.setPcgPreview(canvas, occludes)}
@@ -853,12 +873,13 @@ export default function App() {
             onAddToSky={addBakeToSky}
           />
         )}
-        {!hdrTuning && tab === 'sprites' && (
+        {tab === 'sprites' && (
           <SpritesTab version={spriteVersion} onChanged={refreshUserTextureLayers} />
         )}
-        {!hdrTuning && tab === 'script' && (
+        {tab === 'script' && (
           <ScriptTab layers={layers} onApply={(next) => loadLayers(next, true)} />
         )}
+        </Suspense>
       </aside>
 
       <div
@@ -870,6 +891,12 @@ export default function App() {
         onDrop={onViewportDrop}
       >
         <canvas ref={canvasRef} />
+        <div className="viewport-status">
+          <button type="button" aria-label="Toggle HDR view" aria-pressed={display.hdr} disabled={exporting || hdrPreviewOpen} onClick={() => updateDisplay({ hdr: !display.hdr })}>
+            <span className="display-status-dot" />{display.hdr ? 'HDR' : 'Standard'} <span>{display.exposure > 0 ? '+' : ''}{display.exposure} EV</span>
+          </button>
+          <span>{projection === 'placement' ? 'Placement view' : flatView ? 'Panorama' : 'Wide view'}</span>
+        </div>
         {hdrPicking && <button className="hdr-preview-picker" type="button" aria-label="Pick HDR preview area" onClick={event => {
           const point = sceneRef.current?.lonLatAtClient(event.clientX, event.clientY);
           if (point) setHdrPreviewCenter({ lonDeg: point.lonDeg, latDeg: point.latDeg });

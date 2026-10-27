@@ -5,7 +5,6 @@
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { EXRExporter } from 'three/addons/exporters/EXRExporter.js';
 import { halfBufferToFloat } from '../export/hdr';
 import type { StarData } from '../export/perLayer';
 import type { TileSource } from '../export/tiles';
@@ -47,7 +46,7 @@ function loadBundledCatalog(): Promise<CatalogStar[]> {
 
 interface LayerObject {
   group: THREE.Group;
-  updateHdr?: (layer: Layer) => void;
+  updateHdr?: (layer: Layer) => boolean | void;
   /** Reuse an existing preview's resources when its layer shape permits it. */
   update?: (layer: Layer) => boolean;
   /** resolves when async content (catalog fetch, textures) is attached */
@@ -330,7 +329,7 @@ export class PreviewScene {
     // An explicit refresh with identical fields can mean a replaced image.
     const metadataOnly = previous && changed.length > 0 && changed.every(key => key === 'name' || key === 'visible');
     if (changed.length > 0 && changed.every(key => key === 'hdrPower' || key === 'hdrMultiplier') && old.updateHdr) {
-      old.updateHdr(layer); this.invalidateRadiance(index); return;
+      if (old.updateHdr(layer) !== false) { this.invalidateRadiance(index); return; }
     }
     if (layer.type === 'blackhole' && old.update?.(layer)) {
       this.invalidateRadiance(index); return;
@@ -979,12 +978,18 @@ export class PreviewScene {
 
   private buildSkyNoiseLayer(layer: Extract<Layer, { type: 'noise' | 'volumetric' }>, index: number): LayerObject {
     const type = layer.type, size = Math.max(4, layer.previewTextureSize);
+    let bakedPower = layer.hdrPower ?? 1;
     const cubemap = new NoiseCubemap(size, 'half', type === 'volumetric' ? 'volumetric' : 'noise');
-    const render = (next: typeof layer) => cubemap.render(this.renderer, next.type === 'noise' ? noiseParamsFromLayer(next) : noiseParamsFromVolumetric(next));
+    // Brightness is a composite uniform, independent of density/coverage.
+    const render = (next: typeof layer) => {
+      const params = next.type === 'noise' ? noiseParamsFromLayer(next) : noiseParamsFromVolumetric(next);
+      cubemap.render(this.renderer, { ...params, hdrMultiplier: 1 });
+      bakedPower = next.hdrPower ?? 1;
+    };
     render(layer);
     const material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: SKY_VERT, fragmentShader: SKY_FRAG,
-      side: THREE.BackSide, uniforms: { cubeMap: { value: cubemap.texture } },
+      side: THREE.BackSide, uniforms: { cubeMap: { value: cubemap.texture }, emissionGain: { value: layer.hdrMultiplier ?? 1 } },
     });
     applyBlend(material, layer.sourceBlendFactor, layer.destBlendFactor);
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(SKY_RADIUS * 2, SKY_RADIUS * 2, SKY_RADIUS * 2), material);
@@ -999,9 +1004,15 @@ export class PreviewScene {
     };
     const object: LayerObject = {
       group, ready: ready(),
+      updateHdr: next => {
+        if ((next.hdrPower ?? 1) !== bakedPower) return false;
+        material.uniforms.emissionGain.value = next.hdrMultiplier ?? 1;
+        return true;
+      },
       update: next => {
         if (next.type !== type || (next.type !== 'noise' && next.type !== 'volumetric') || (next.type === 'noise' && next.cloudEnabled) || Math.max(4, next.previewTextureSize) !== size) return false;
         render(next); applyBlend(material, next.sourceBlendFactor, next.destBlendFactor);
+        material.uniforms.emissionGain.value = next.hdrMultiplier ?? 1;
         object.ready = ready(); return true;
       },
       dispose: () => { version++; mesh.geometry.dispose(); material.dispose(); cubemap.dispose(); },
@@ -1632,6 +1643,7 @@ export class PreviewScene {
       equirect = { width: w, height: h, data: halfBufferToFloat(half) };
 
       if (wantExr) {
+        const { EXRExporter } = await import('three/addons/exporters/EXRExporter.js');
         exr = await new EXRExporter().parse(this.renderer, eqRt, {
           type: THREE.HalfFloatType,
         });
@@ -1668,8 +1680,10 @@ export class PreviewScene {
   /** Display transforms run AFTER linear HDR compositing; exports stay linear. */
   setHdrDisplay(enabled: boolean, exposure = 0, mapping: 'reinhard' | 'linear' = 'reinhard'): void {
     this.displayExposure.value = 2 ** Math.max(-32, Math.min(32, Number.isFinite(exposure) ? exposure : 0));
-    this.displayMapping.value = enabled ? (mapping === 'reinhard' ? 1 : 2) : 0;
-    if (enabled && !this.hdrDisplay) {
+    // Both views share linear composition and display gamma. Only highlight
+    // mapping changes; toggles reuse the cached source without rebuilding it.
+    this.displayMapping.value = enabled && mapping === 'reinhard' ? 1 : 2;
+    if (!this.hdrDisplay) {
       const material = new THREE.ShaderMaterial({
         glslVersion: THREE.GLSL3, vertexShader: EQUIRECT_VERT,
         fragmentShader: `precision highp float;
@@ -1687,11 +1701,13 @@ export class PreviewScene {
       mesh.frustumCulled = false; scene.add(mesh);
       this.hdrDisplay = { scene, mesh, material, camera: new THREE.Camera(), dirty: true };
       this.flatDirty = true;
-    } else if (!enabled && this.hdrDisplay) {
-      this.hdrDisplay.target?.dispose(); this.hdrDisplay.mesh.geometry.dispose(); this.hdrDisplay.material.dispose();
-      this.hdrDisplay = undefined; this.flatDirty = true;
     }
     if (this.hdrDisplay) this.hdrDisplay.dirty = true;
+  }
+
+  private releaseHdrDisplay(): void {
+    this.hdrDisplay?.target?.dispose(); this.hdrDisplay?.mesh.geometry.dispose(); this.hdrDisplay?.material.dispose();
+    this.hdrDisplay = undefined;
   }
 
   private renderPerspective(): void {
@@ -1789,7 +1805,7 @@ export class PreviewScene {
     this.setLayers([]);
     this.controls.dispose();
     this.releaseFlatView();
-    this.setHdrDisplay(false);
+    this.releaseHdrDisplay();
     this.maskCache.clear();
     this.renderer.dispose();
   }
