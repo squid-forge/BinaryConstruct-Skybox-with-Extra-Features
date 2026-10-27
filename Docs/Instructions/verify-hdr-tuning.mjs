@@ -25,6 +25,29 @@ try {
     const ids = scene.layerObjects.map(o => o.group.uuid);
     const bh = scene.previewLayers.findIndex(l => l.type === 'blackhole');
     const original = scene.previewLayers[bh];
+    // Check background lensing itself, rather than only disc/ring emission.
+    // Use the supplied template when present, including its imported sprites.
+    const { captureHdrPreview, compareHdrPreview } = await import('/src/export/hdrPreview.ts');
+    const { streamHdr } = await import('/src/export/streamEncoders.ts');
+    const { HDRLoader } = await import('/node_modules/three/examples/jsm/loaders/HDRLoader.js');
+    const { FloatType } = await import('/node_modules/three/build/three.module.js');
+    const cropSize = original.apparentSize < 0.02 ? 16384 : 2048;
+    const center = { lonDeg: original.dirLonDeg, latDeg: original.dirLatDeg };
+    const capture = async layers => compareHdrPreview(await captureHdrPreview(scene, layers, cropSize, center, new AbortController().signal, () => {}, { lensResolution: 1024 }), 0).native;
+    const authored = await capture(scene.previewLayers);
+    const changedLens = await capture(scene.previewLayers.map((layer, i) => i === bh ? { ...layer, lensStrength: original.lensStrength === 0 ? 1 : 0 } : layer));
+    const encodeDecode = async pixels => {
+      const chunks = [];
+      await streamHdr(384, 192, (y, row) => row.set(pixels.subarray(y * 384 * 4, (y + 1) * 384 * 4)), async bytes => chunks.push(bytes.slice()), { signal: new AbortController().signal, progress: () => {} });
+      return new HDRLoader().setDataType(FloatType).parse(await new Blob(chunks).arrayBuffer()).data;
+    };
+    const decodedAuthored = await encodeDecode(authored), decodedChanged = await encodeDecode(changedLens);
+    let sourceWarp = 0, decodedWarp = 0;
+    for (let i = 0; i < authored.length; i++) if (i % 4 !== 3) {
+      sourceWarp += Math.abs(authored[i] - changedLens[i]);
+      decodedWarp += Math.abs(decodedAuthored[i] - decodedChanged[i]);
+    }
+    if (sourceWarp < 0.1 || decodedWarp < sourceWarp * 0.8) throw Error('Black-hole background distortion was absent or lost in HDR encoding');
     scene.updateLayer(bh, { ...original, hdrMultiplier: 0 });
     if (scene.layerObjects[bh].group.uuid !== ids[bh]) throw Error('Black-hole HDR rebuilt geometry');
     const lens = scene.layerObjects[bh].group.children[0].material;
@@ -70,7 +93,8 @@ try {
     const noise = { ...defaultLayer('noise'), sourceBlendFactor: 'src_alpha', destBlendFactor: 'zero', hdrMultiplier: 1 };
     const unit = await energy(noise), scaled = await energy({ ...noise, hdrMultiplier: 3 });
     if (Math.abs(scaled / unit - 3) > 0.01) throw Error('HDR multiplier changed noise coverage');
-    return { layers: ids.length, blackHoleIndex: bh, geometryReused: true, exportTileRendered: true, radiance, noiseCoverageGain: scaled / unit };
+    return { layers: ids.length, blackHoleIndex: bh, geometryReused: true, exportTileRendered: true, radiance, noiseCoverageGain: scaled / unit,
+      lensing: { longitude: center.lonDeg, latitude: center.latDeg, panoramaWidth: cropSize * 2, sourceWarp, decodedWarp } };
   });
   await panel.getByLabel('Selected item', { exact: true }).selectOption(String(result.blackHoleIndex));
   const beforeShape = await page.evaluate(i => {
