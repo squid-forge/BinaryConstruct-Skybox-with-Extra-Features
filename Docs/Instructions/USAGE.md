@@ -8,6 +8,8 @@ Run `npm ci`, then `npm run dev` from the package directory and open the localho
 
 Choose a bundled preset as a starting point. **Open** imports scene JSON, legacy Spacescape XML and project ZIPs. **Save** writes a project ZIP with scene settings and uploaded sprite images. Keep saved checkpoints. Undo/Redo restores recent scene edits and asset changes during this session. JSON/XML alone does not include uploaded images; missing assignments are preserved and can be restored through Sprites.
 
+Project ZIP and legacy SSPJ imports support files up to 256 MiB and 4,096 archive entries. The scene and sprite entries together can expand to 512 MiB.
+
 ## Layers and placement
 
 Use the Layers tab to add, select, reorder, hide, duplicate or delete layers. Each layer has a seed and its own blend settings. Additive blending works best with artwork on black; alpha blending uses transparency. Layers above a black hole can cover its effect; the lens captures the background behind it.

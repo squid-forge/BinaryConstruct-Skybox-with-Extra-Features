@@ -19,6 +19,8 @@ node_modules/
 /temp/
 /backups/
 /.local-review/
+/USER_DATA_DONT_COMMIT/
+/Docs/Design/HDR-TUNING-REVIEW.md
 /scratch-*
 *.log
 *.tmp

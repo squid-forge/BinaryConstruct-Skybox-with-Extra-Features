@@ -43,7 +43,7 @@
         <type>noise</type>
     </layer>
     <layer>
-        <dataFile>F:/workspace/Spacescape/stars-all.csv</dataFile>
+        <dataFile>stars.csv</dataFile>
         <destBlendFactor>one_minus_src_colour</destBlendFactor>
         <farColor>1 1 1 1</farColor>
         <hdrMultiplier>0.5</hdrMultiplier>

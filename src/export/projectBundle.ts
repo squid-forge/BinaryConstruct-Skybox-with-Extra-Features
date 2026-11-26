@@ -36,8 +36,33 @@ export interface BundleContents extends ImportResult {
   assets: Array<{ fileName: string; data: Uint8Array; occludes: boolean }>;
 }
 
+const MAX_BUNDLE_BYTES = 256 * 1024 * 1024;
+const MAX_EXPANDED_BYTES = 512 * 1024 * 1024;
+const MAX_BUNDLE_ENTRIES = 4096;
+
+export function checkProjectBundleSize(size: number): void {
+  if (size > MAX_BUNDLE_BYTES) throw new Error('Project bundles can be up to 256 MiB on disk.');
+}
+
 export function openProjectBundle(data: Uint8Array): BundleContents {
-  const files = unzipSync(data);
+  checkProjectBundleSize(data.byteLength);
+  let entries = 0;
+  let compressedBytes = 0;
+  let expandedBytes = 0;
+  const files = unzipSync(data, {
+    filter: ({ name, size, originalSize }) => {
+      if (++entries > MAX_BUNDLE_ENTRIES) throw new Error('Project bundles can contain up to 4,096 entries.');
+      if (name !== 'project.json' && name !== 'assets-meta.json' && !name.startsWith('assets/')) return false;
+
+      compressedBytes += size;
+      // An uncompressed entry consumes its stored size, even if its other size field disagrees.
+      expandedBytes += Math.max(size, originalSize);
+      if (compressedBytes > MAX_BUNDLE_BYTES || expandedBytes > MAX_EXPANDED_BYTES) {
+        throw new Error('Project bundle contents exceed the import size limits.');
+      }
+      return true;
+    },
+  });
   const projectEntry = files['project.json'];
   if (!projectEntry) throw new Error('not a Spacescape project bundle (missing project.json)');
 

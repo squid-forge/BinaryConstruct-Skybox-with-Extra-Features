@@ -3,6 +3,7 @@
 <h2 id="start-and-save">Start and save</h2>
 <p>Run <code>npm ci</code>, then <code>npm run dev</code> from the package directory and open the localhost URL. For the built application use <code>npm run build</code> followed by <code>npm run preview</code>. The app runs in the browser; local help is available from the question-mark button and Credits opens author and license information.</p>
 <p>Choose a bundled preset as a starting point. <strong>Open</strong> imports scene JSON, legacy Spacescape XML and project ZIPs. <strong>Save</strong> writes a project ZIP with scene settings and uploaded sprite images. Keep saved checkpoints. Undo/Redo restores recent scene edits and asset changes during this session. JSON/XML alone does not include uploaded images; missing assignments are preserved and can be restored through Sprites.</p>
+<p>Project ZIP and legacy SSPJ imports support files up to 256 MiB and 4,096 archive entries. The scene and sprite entries together can expand to 512 MiB.</p>
 <h2 id="layers-and-placement">Layers and placement</h2>
 <p>Use the Layers tab to add, select, reorder, hide, duplicate or delete layers. Each layer has a seed and its own blend settings. Additive blending works best with artwork on black; alpha blending uses transparency. Layers above a black hole can cover its effect; the lens captures the background behind it.</p>
 <p>Drag a positional object in the sky to move it, or edit longitude and latitude. Lock position to prevent accidental moves. Sprite apparent size, aspect and rotation control its footprint. Stars and flares have seeded placement and mask controls. Noise layers offer FBM/ridged noise, octaves, scale, gain, lacunarity, warp, color ramps and HDR shaping; volumetric layers add depth and absorption.</p>
@@ -93,8 +94,8 @@
 <p>Full-detail lens captures use approximately <code>6 * 8 * faceSize^2</code> bytes per black hole before driver overhead: 2K is 192 MiB, 4K is 768 MiB, 8K is 3 GiB, 16K is 12 GiB. Tiles do not bound those optional captures. Oversized hardware requests fail explicitly; do not silently substitute the auto detail when the user requests a larger capture. A hidden central object needs no captured background and uses an unallocated 1-pixel placeholder.</p>
 <p>There is no claim of unlimited hardware resolution or new information in an imported image. Use native layers for large hero elements and check their native export crops. Export formats currently offer 512 through 16384 pixels per face.</p>
 <h1 id="credits">Credits</h1>
-<p>• <strong>BinaryConstruct</strong>: original BinaryConstruct Skybox editor, from BinaryConstruct/skyboxeditor.</p>
-<p>• <strong>Alex Peterson</strong>: Spacescape, which inspired the editor; inherited algorithms, presets and flare artwork.</p>
+<p>• <strong>BinaryConstruct</strong>: original <a href="https://github.com/BinaryConstruct/skyboxeditor">BinaryConstruct Skybox editor</a>.</p>
+<p>• <strong>Alex Peterson</strong>: <a href="https://github.com/petrocket/spacescape">Spacescape</a>, which inspired the editor and supplied inherited algorithms, presets and artwork.</p>
 <p>• <strong>Kenney Vleugels</strong>: the four bundled <a href="https://opengameart.org/content/smoke-particle-assets">smoke masks</a>. Original filenames and hashes are in <a href="masks/smoke/provenance.json">provenance.json</a>.</p>
 <p>• <strong>David Nash / Astronomy Nexus</strong>: HYG v2 star catalog. The bundled subset came through Spacescape; attribution and terms are in <a href="licenses/HYG-CC-BY-SA-2.5.txt">the catalog notice</a>.</p>
 <p>• React, three.js, fflate and other dependencies: their authors and notices are listed in <a href="licenses/THIRD_PARTY_NOTICES.txt">THIRD_PARTY_NOTICES.txt</a>.</p>

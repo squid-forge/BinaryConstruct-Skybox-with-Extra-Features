@@ -8,7 +8,7 @@ import { resolveTextureReference } from './assets/textureReferences';
 import { importLegacyXml, fromJsonString } from './core/io';
 import { NATIVE_PLUME_DEFAULTS, defaultLayer, type Layer, type LayerType } from './core/layers';
 import { downloadBlob, floatToPngBlob } from './export/exporter';
-import { buildProjectBundle, mimeForFileName, openProjectBundle } from './export/projectBundle';
+import { buildProjectBundle, checkProjectBundleSize, mimeForFileName, openProjectBundle } from './export/projectBundle';
 import { PreviewScene } from './render/PreviewScene';
 import { PREVIEW_QUALITY, type PreviewQuality } from './render/previewQuality';
 import type { PreviewProjection } from './render/previewProjection';
@@ -379,6 +379,7 @@ export default function App() {
     try {
       const lower = file.name.toLowerCase();
       if (lower.endsWith('.sspj') || lower.endsWith('.zip')) {
+        checkProjectBundleSize(file.size);
         const bundle = openProjectBundle(new Uint8Array(await file.arrayBuffer()));
         clearSpriteAssets(); // don't leak the previous project's assets in
         for (const a of bundle.assets) {

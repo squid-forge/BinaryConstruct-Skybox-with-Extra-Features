@@ -1,6 +1,6 @@
 # BinaryConstruct Skybox + Extra Features
 
-I needed extra features for a project I'm working on, so I used Codex to add them to BinaryConstruct Skybox. I'm sharing this version in case anyone else finds it useful.
+This is an independently maintained version of [BinaryConstruct Skybox](https://github.com/BinaryConstruct/skyboxeditor). I used Codex to add features I needed for another project, then shared this version for others to use.
 
 ## 8K and 16K exports
 
@@ -37,6 +37,8 @@ npm run dev
 
 Try the `smoke-clouds`, `galactic-rim` or `nebula-jets` presets. See the [usage guide](Docs/Instructions/USAGE.md) for controls.
 
+Use the development server on localhost. To share the editor, build it with `npm run build` and serve `dist/` over HTTPS. See the [hosting guide](Docs/Instructions/HOSTING.md) and [verification guide](Docs/Instructions/VERIFICATION.md).
+
 ## Credits
 
-Original editor: **BinaryConstruct**. Spacescape: **Alex Peterson**. Smoke masks: **Kenney**. Star catalog: **David Nash / Astronomy Nexus**. Full attribution is in [CREDITS.md](CREDITS.md).
+Full attribution is in [CREDITS.md](CREDITS.md). The editor code is [MIT licensed](LICENSE). The bundled HYG star catalog is CC BY-SA 2.5, and the Kenney smoke masks are CC0. See [LICENSING.md](LICENSING.md) for the component terms.
