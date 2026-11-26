@@ -142,7 +142,7 @@ Remove-Item Env:ZIP64_LARGE_TEST
 
 The opt-in ZIP64 test writes a 4097-MiB entry plus a later entry beyond the 4-GiB offset boundary, verifies all CRCs with Python zipfile, then removes the exact test archive. It needs Python and over 4 GiB free disk space; routine `npm test` skips this expensive case. ZIP64 unit tests also check 64-bit metadata, Unicode, empty entries, CRCs and independent readers.
 
-The package browser test checks independent core-cloud settings without changing the original glow; the supplied black-hole geometry/noise/palette at parent HDR power 5; contrast against the old exponent behavior; output into a browser directory handle; success feedback and local author credits. For automation its destination is an OPFS-backed directory handle, so it checks the selected-directory writing path but does not claim to operate the native OS permission picker. Inspect the PNGs under `Docs/Research/2026-10-25-package-fixes/`.
+The package browser test checks that a new core cloud preserves the original glow. It uses the bundled `nebula-jets` preset to compare plume rendering at parent HDR power 5 with and without independent plume shaping. It also checks folder export, success feedback, and local credits. The test uses an OPFS-backed directory handle to exercise the folder-writing path. Inspect the PNGs under `Docs/Research/2026-10-25-package-fixes/`.
 
 
 ## Local smoke clouds, radial sources and scene history

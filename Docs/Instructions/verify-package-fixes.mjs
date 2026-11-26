@@ -3,7 +3,10 @@ import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 const out = new URL('../Research/2026-10-25-package-fixes/', import.meta.url);
 await mkdir(out, { recursive: true });
-const bh = JSON.parse(await readFile(new URL('reported-black-hole.json', out), 'utf8'));
+const preset = JSON.parse(await readFile(new URL('../../presets/nebula-jets.json', import.meta.url), 'utf8'));
+const blackHole = preset.layers.find(layer => layer.type === 'blackhole' && layer.jetEnabled);
+if (!blackHole) throw Error('The nebula-jets preset must include a black hole with jets.');
+const bh = { ...blackHole, hdrPower: 5, jetHdrPower: 1, jetLength: 200, jetLayers: [] };
 const browser = await chromium.launch({ channel: 'chrome', args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 try {
   const context = await browser.newContext({ viewport: { width: 1530, height: 900 } });
@@ -22,9 +25,9 @@ try {
   if (!core.bandCoreOnly || core.bandCenterGlow !== 0 || core.bandIntensity !== 0.7 || core.seed === clouds.layers[0].seed) throw Error('Core cloud is not independent');
   if (coreScene.layers[0].bandCenterGlow !== clouds.layers[0].bandCenterGlow) throw Error('Core creation changed original glow');
   await page.getByRole('button', { name: 'Layers', exact: true }).click(); await shot('independent-core-nebula');
-  // Exact supplied geometry/noise/palette, including length 200 and parent HDR 5.
+  // Use the bundled plume geometry and palette with length 200 and parent HDR 5.
   const scene = { version: 2, layers: [bh] };
-  await apply(scene); await page.getByText(bh.name, { exact: true }).click(); await shot('reported-plumes-fixed');
+  await apply(scene); await page.getByTitle(bh.name, { exact: true }).click(); await shot('reported-plumes-fixed');
   const fixed = await page.locator('.viewport canvas').screenshot();
   await apply({ version: 2, layers: [{ ...bh, jetHdrPower: 5 }] }); await shot('reported-plumes-old-hdr-shaping');
   const old = await page.locator('.viewport canvas').screenshot();
